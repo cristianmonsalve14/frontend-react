@@ -1,4 +1,6 @@
 
+import { apiUrl, getAuthHeaders } from "./client";
+
 export interface Subject {
   id: number;
   subjectCode: string;
@@ -6,9 +8,7 @@ export interface Subject {
   description?: string;
   teacherId?: number;
   weeklyHours?: number;
-  semesterCredits?: number;
   subjectType?: string;
-  area?: string;
   courseId?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -21,24 +21,11 @@ export interface CreateSubjectDto {
   description?: string;
   teacherId?: number;
   weeklyHours?: number;
-  semesterCredits?: number;
   subjectType?: string;
-  area?: string;
   courseId?: number;
 }
 
-const API_URL = "http://localhost:8082/subjects";
-
-const getAuthHeaders = () => {
-  const token = localStorage.getItem("token");
-  if (!token) {
-    throw new Error("No hay token de autenticación");
-  }
-  return {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${token}`,
-  };
-};
+const API_URL = apiUrl("/subjects");
 
 export const getSubjects = async (): Promise<Subject[]> => {
   try {
@@ -57,7 +44,7 @@ export const getSubjects = async (): Promise<Subject[]> => {
     return data;
   } catch (error) {
     if (error instanceof TypeError && error.message.includes("fetch")) {
-      throw new Error("No se puede conectar al servidor académico. Verifica que el academicService esté corriendo en http://localhost:8082");
+      throw new Error("No se puede conectar al API Gateway. Verifica que apiGetaway esté corriendo en http://localhost:8090");
     }
     throw error;
   }

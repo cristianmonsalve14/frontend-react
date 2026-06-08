@@ -6,8 +6,11 @@ import Subjects from "./Subjects";
 import Enrollments from "./Enrollments";
 import Evaluations from "./Evaluations";
 import Teachers from "./Teachers";
+import Guardians from "./Guardians";
+import Grades from "./Grades";
+import { moduleThemes } from "./theme/moduleThemes";
 
-type View = "dashboard" | "courses" | "students" | "subjects" | "enrollments" | "evaluations" | "teachers";
+type View = "dashboard" | "courses" | "students" | "subjects" | "enrollments" | "evaluations" | "grades" | "teachers" | "guardians";
 
 function App() {
   // Siempre inicia en false para mostrar el login
@@ -32,6 +35,12 @@ function App() {
         return <Enrollments onBack={() => setCurrentView("dashboard")} />;
       case "evaluations":
         return <Evaluations onBack={() => setCurrentView("dashboard")} />;
+      case "grades":
+        return <Grades onBack={() => setCurrentView("dashboard")} />;
+      case "teachers":
+        return <Teachers onBack={() => setCurrentView("dashboard")} />;
+      case "guardians":
+        return <Guardians onBack={() => setCurrentView("dashboard")} />;
       default:
         return (
           <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
@@ -65,7 +74,7 @@ function App() {
                 {/* Cursos */}
                 <button
                   onClick={() => setCurrentView("courses")}
-                  className="bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border-2 border-transparent hover:border-blue-300"
+                  className={`bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border border-slate-200 ${moduleThemes.courses.dashboardCard}`}
                 >
                   <div className="text-6xl mb-4">📖</div>
                   <h3 className="text-2xl font-bold text-gray-700 mb-2">Cursos</h3>
@@ -75,7 +84,7 @@ function App() {
                 {/* Estudiantes */}
                 <button
                   onClick={() => setCurrentView("students")}
-                  className="bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border-2 border-transparent hover:border-green-300"
+                  className={`bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border border-slate-200 ${moduleThemes.students.dashboardCard}`}
                 >
                   <div className="text-6xl mb-4">👨‍🎓</div>
                   <h3 className="text-2xl font-bold text-gray-700 mb-2">Estudiantes</h3>
@@ -85,7 +94,7 @@ function App() {
                 {/* Asignaturas */}
                 <button
                   onClick={() => setCurrentView("subjects")}
-                  className="bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border-2 border-transparent hover:border-purple-300"
+                  className={`bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border border-slate-200 ${moduleThemes.subjects.dashboardCard}`}
                 >
                   <div className="text-6xl mb-4">📚</div>
                   <h3 className="text-2xl font-bold text-gray-700 mb-2">Asignaturas</h3>
@@ -95,7 +104,7 @@ function App() {
                 {/* Matrículas */}
                 <button
                   onClick={() => setCurrentView("enrollments")}
-                  className="bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border-2 border-transparent hover:border-orange-300"
+                  className={`bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border border-slate-200 ${moduleThemes.enrollments.dashboardCard}`}
                 >
                   <div className="text-6xl mb-4">📋</div>
                   <h3 className="text-2xl font-bold text-gray-700 mb-2">Matrículas</h3>
@@ -105,21 +114,41 @@ function App() {
                 {/* Evaluaciones */}
                 <button
                   onClick={() => setCurrentView("evaluations")}
-                  className="bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border-2 border-transparent hover:border-cyan-300"
+                  className={`bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border border-slate-200 ${moduleThemes.evaluations.dashboardCard}`}
                 >
                   <div className="text-6xl mb-4">📝</div>
                   <h3 className="text-2xl font-bold text-gray-700 mb-2">Evaluaciones</h3>
                   <p className="text-gray-500">Crear evaluaciones</p>
                 </button>
 
+                {/* Notas */}
+                <button
+                  onClick={() => setCurrentView("grades")}
+                  className={`bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border border-slate-200 ${moduleThemes.grades.dashboardCard}`}
+                >
+                  <div className="text-6xl mb-4">📊</div>
+                  <h3 className="text-2xl font-bold text-gray-700 mb-2">Notas</h3>
+                  <p className="text-gray-500">Calificar estudiantes</p>
+                </button>
+
                 {/* Profesores */}
                 <button
                   onClick={() => setCurrentView("teachers")}
-                  className="bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border-2 border-transparent hover:border-pink-300"
+                  className={`bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border border-slate-200 ${moduleThemes.teachers.dashboardCard}`}
                 >
                   <div className="text-6xl mb-4">👨‍🏫</div>
                   <h3 className="text-2xl font-bold text-gray-700 mb-2">Profesores</h3>
                   <p className="text-gray-500">Gestionar profesores</p>
+                </button>
+
+                {/* Apoderados */}
+                <button
+                  onClick={() => setCurrentView("guardians")}
+                  className={`bg-white rounded-xl shadow-md p-8 hover:shadow-xl transition transform hover:scale-105 border border-slate-200 ${moduleThemes.guardians.dashboardCard}`}
+                >
+                  <div className="text-6xl mb-4">👪</div>
+                  <h3 className="text-2xl font-bold text-gray-700 mb-2">Apoderados</h3>
+                  <p className="text-gray-500">Gestionar apoderados</p>
                 </button>
               </div>
             </main>
@@ -130,9 +159,6 @@ function App() {
 
   if (!isLogged) {
     return <Login onLogin={() => setIsLogged(true)} />;
-  }
-  if (currentView === "teachers") {
-    return <Teachers onBack={() => setCurrentView("dashboard")} />;
   }
   return renderView();
 }

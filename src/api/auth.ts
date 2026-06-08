@@ -1,6 +1,8 @@
+import { apiUrl } from "./client";
+
 export const login = async (username: string, password: string) => {
   try {
-    const response = await fetch("http://localhost:8081/auth/login", {
+    const response = await fetch(apiUrl("/auth/login"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -15,13 +17,15 @@ export const login = async (username: string, password: string) => {
 
     const data = await response.json();
 
-    // guardar token
     localStorage.setItem("token", data.accessToken);
 
     return data;
   } catch (error) {
     if (error instanceof TypeError && error.message.includes("fetch")) {
-      throw new Error("No se puede conectar al servidor. Verifica que el authService esté corriendo en http://localhost:8081", { cause: error });
+      throw new Error(
+        "No se puede conectar al API Gateway. Verifica que apiGetaway esté corriendo en http://localhost:8090",
+        { cause: error }
+      );
     }
     throw error;
   }

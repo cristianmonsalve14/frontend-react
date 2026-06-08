@@ -2,32 +2,27 @@
 import { useState, useEffect } from "react";
 import { getEvaluations, createEvaluation, updateEvaluation, deleteEvaluation } from "./api/evaluations";
 import { getSubjects } from "./api/subjects";
+import { getCourses } from "./api/courses";
 import type { Evaluation, CreateEvaluationDto } from "./api/evaluations";
 import type { Subject } from "./api/subjects";
-
-type EvaluationUI = {
-  id: number;
-  name: string;
-  date?: string;
-  subjectId?: number;
-  evaluationType?: string;
-  evaluationStatus?: string;
-  weight?: number;
-  maxScore?: number;
-  description?: string;
-  grade?: number;
-};
+import type { Course } from "./api/courses";
+import { formatCourseLabel } from "./utils/formatCourseLabel";
+import ViewDetailModal, { type DetailField } from "./components/ViewDetailModal";
+import { moduleThemes } from "./theme/moduleThemes";
+import ModuleLayout from "./components/ModuleLayout";
+import RecordActions from "./components/RecordActions";
+import FormModal, { FormField, formInputClass } from "./components/FormModal";
 
 type FormData = {
   name: string;
   date?: string;
   subjectId: string;
+  courseId: string;
   evaluationType?: string;
   evaluationStatus?: string;
   weight?: string;
   maxScore?: string;
   description?: string;
-  grade?: string;
 };
 
 interface EvaluationsProps {
@@ -35,8 +30,10 @@ interface EvaluationsProps {
 }
 
 function Evaluations({ onBack }: EvaluationsProps) {
-  const [evaluations, setEvaluations] = useState<EvaluationUI[]>([]);
+  const theme = moduleThemes.evaluations;
+  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -45,42 +42,32 @@ function Evaluations({ onBack }: EvaluationsProps) {
     name: "",
     date: "",
     subjectId: "",
+    courseId: "",
     evaluationType: "",
-    evaluationStatus: "",
+    evaluationStatus: "ACTIVO",
     weight: "",
-    maxScore: "",
+    maxScore: "7",
     description: "",
-    grade: "",
   });
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [searchTerm, setSearchTerm] = useState("");
+  const [viewingEvaluation, setViewingEvaluation] = useState<Evaluation | null>(null);
 
 
   const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const [evaluationsData, subjectsData] = await Promise.all([
+      const [evaluationsData, subjectsData, coursesData] = await Promise.all([
         getEvaluations(),
         getSubjects(),
+        getCourses(),
       ]);
-      // Usar solo camelCase (ya mapeado por el backend/api)
-      const mappedEvaluations: EvaluationUI[] = evaluationsData.map(ev => ({
-        id: ev.id,
-        name: ev.name,
-        date: ev.date,
-        subjectId: ev.subjectId,
-        evaluationType: ev.evaluationType,
-        evaluationStatus: ev.evaluationStatus,
-        weight: ev.weight,
-        maxScore: ev.maxScore,
-        description: ev.description,
-        grade: ev.grade,
-      }));
-      setEvaluations(mappedEvaluations);
+      setEvaluations(evaluationsData);
       setSubjects(subjectsData);
+      setCourses(coursesData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
       console.error("Error cargando datos:", err);
@@ -103,6 +90,29 @@ function Evaluations({ onBack }: EvaluationsProps) {
     return subject?.subjectName || `ID: ${subjectId}`;
   };
 
+  const getCourseName = (courseId?: number) => {
+    if (!courseId) return "Sin curso";
+    const course = courses.find((c) => c.id === courseId);
+    return course ? formatCourseLabel(course) : `ID: ${courseId}`;
+  };
+
+  const formatEvaluationDate = (dateStr?: string) =>
+    dateStr ? new Date(dateStr).toLocaleDateString("es-CL") : undefined;
+
+  const getEvaluationDetailFields = (evaluation: Evaluation): DetailField[] => [
+    { label: "Nombre", value: evaluation.name },
+    { label: "Tipo", value: evaluation.evaluationType },
+    { label: "Estado", value: evaluation.evaluationStatus },
+    { label: "Descripción", value: evaluation.description },
+    {
+      label: "Ponderación",
+      value: evaluation.weight != null ? `${evaluation.weight}%` : undefined,
+    },
+    { label: "Nota máxima", value: evaluation.maxScore },
+    { label: "Fecha", value: formatEvaluationDate(evaluation.date) },
+    { label: "Asignatura", value: getSubjectName(evaluation.subjectId) },
+    { label: "Curso", value: getCourseName(evaluation.courseId) },
+  ];
 
   const filteredEvaluations = evaluations.filter((evaluation) => {
     const searchLower = searchTerm.toLowerCase();
@@ -121,31 +131,30 @@ function Evaluations({ onBack }: EvaluationsProps) {
       name: "",
       date: "",
       subjectId: "",
+      courseId: "",
       evaluationType: "",
-      evaluationStatus: "",
+      evaluationStatus: "ACTIVO",
       weight: "",
-      maxScore: "",
+      maxScore: "7",
       description: "",
-      grade: "",
     });
     setFormError(null);
     setShowModal(true);
   };
 
 
-  // Recibe Evaluation (snake_case) o EvaluationUI (camelCase)
-  const openEditModal = (evaluation: Evaluation | EvaluationUI) => {
-    setEditingEvaluation(evaluation as Evaluation);
+  const openEditModal = (evaluation: Evaluation) => {
+    setEditingEvaluation(evaluation);
     setFormData({
-      name: (evaluation as EvaluationUI).name ?? "",
-      date: (evaluation as EvaluationUI).date ?? "",
-      subjectId: (evaluation as EvaluationUI).subjectId?.toString() ?? "",
-      evaluationType: (evaluation as EvaluationUI).evaluationType ?? "",
-      evaluationStatus: (evaluation as EvaluationUI).evaluationStatus ?? "",
-      weight: (evaluation as EvaluationUI).weight?.toString() ?? "",
-      maxScore: (evaluation as EvaluationUI).maxScore?.toString() ?? "",
-      description: (evaluation as EvaluationUI).description ?? "",
-      grade: (evaluation as EvaluationUI).grade?.toString() ?? "",
+      name: evaluation.name ?? "",
+      date: evaluation.date ?? "",
+      subjectId: evaluation.subjectId?.toString() ?? "",
+      courseId: evaluation.courseId?.toString() ?? "",
+      evaluationType: evaluation.evaluationType ?? "",
+      evaluationStatus: evaluation.evaluationStatus ?? "ACTIVO",
+      weight: evaluation.weight?.toString() ?? "",
+      maxScore: evaluation.maxScore?.toString() ?? "7",
+      description: evaluation.description ?? "",
     });
     setFormError(null);
     setShowModal(true);
@@ -159,12 +168,12 @@ function Evaluations({ onBack }: EvaluationsProps) {
       name: "",
       date: "",
       subjectId: "",
+      courseId: "",
       evaluationType: "",
-      evaluationStatus: "",
+      evaluationStatus: "ACTIVO",
       weight: "",
-      maxScore: "",
+      maxScore: "7",
       description: "",
-      grade: "",
     });
     setFormError(null);
   };
@@ -172,6 +181,15 @@ function Evaluations({ onBack }: EvaluationsProps) {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    if (name === "subjectId") {
+      const subject = subjects.find((s) => s.id === parseInt(value));
+      setFormData((prev) => ({
+        ...prev,
+        subjectId: value,
+        courseId: subject?.courseId?.toString() ?? prev.courseId,
+      }));
+      return;
+    }
     setFormData((prev) => ({
       ...prev,
       [name]: value,
@@ -188,17 +206,16 @@ function Evaluations({ onBack }: EvaluationsProps) {
     setSubmitting(true);
     setFormError(null);
     try {
-      const evaluationData: CreateEvaluationDto & { nota?: number } = {
+      const evaluationData: CreateEvaluationDto = {
         name: formData.name.trim(),
         date: formData.date || undefined,
         subjectId: formData.subjectId ? parseInt(formData.subjectId) : undefined,
+        courseId: formData.courseId ? parseInt(formData.courseId) : undefined,
         evaluationType: formData.evaluationType?.trim() || undefined,
-        evaluationStatus: formData.evaluationStatus?.trim() || undefined,
+        evaluationStatus: formData.evaluationStatus?.trim() || "ACTIVO",
         weight: formData.weight ? parseFloat(formData.weight) : undefined,
-        maxScore: formData.maxScore ? parseFloat(formData.maxScore) : undefined,
+        maxScore: formData.maxScore ? parseFloat(formData.maxScore) : 7,
         description: formData.description?.trim() || undefined,
-        // Solo incluir 'nota' si está presente y es un número válido
-        ...(formData.grade && !isNaN(Number(formData.grade)) ? { nota: parseFloat(formData.grade) } : {}),
       };
       if (editingEvaluation) {
         await updateEvaluation(editingEvaluation.id, evaluationData);
@@ -215,8 +232,7 @@ function Evaluations({ onBack }: EvaluationsProps) {
   };
 
 
-  // Puede recibir Evaluation (snake_case) o EvaluationUI (camelCase)
-  const handleDelete = async (evaluation: Evaluation | EvaluationUI) => {
+  const handleDelete = async (evaluation: Evaluation) => {
     const evalName = evaluation.name;
     if (!confirm(`¿Estás seguro de eliminar la evaluación "${evalName}"?`)) {
       return;
@@ -229,350 +245,201 @@ function Evaluations({ onBack }: EvaluationsProps) {
     }
   };
 
+  const inputClass = formInputClass(theme);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-cyan-50 via-sky-50 to-blue-50 p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-6">
-          <button
-            onClick={onBack}
-            className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition font-medium shadow-sm"
-          >
-            ← Volver
-          </button>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-md p-8 border border-gray-100">
-          <div className="flex flex-col gap-4 mb-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-3xl font-bold text-gray-700 mb-2">📝 Evaluaciones</h2>
-                <p className="text-gray-500">Gestión de evaluaciones</p>
-              </div>
-              <button
-                onClick={openCreateModal}
-                className="px-4 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition font-medium shadow-sm flex items-center gap-2"
-              >
-                <span>➕</span>
-                Nueva Evaluación
-              </button>
-            </div>
-
-            {/* Barra de herramientas */}
-            <div className="flex gap-3 items-center flex-wrap">
-              {/* Búsqueda */}
-              <div className="flex-1 min-w-[200px]">
-                <input
-                  type="text"
-                  placeholder="🔍 Buscar por nombre o asignatura..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-                />
-              </div>
-
-              {/* Toggle Vista */}
-              <div className="flex gap-2 bg-gray-100 rounded-lg p-1">
-                <button
-                  onClick={() => setViewMode("cards")}
-                  className={`px-4 py-2 rounded-lg transition font-medium flex items-center gap-2 ${
-                    viewMode === "cards"
-                      ? "bg-cyan-500 text-white"
-                      : "text-gray-600 hover:bg-gray-200"
-                  }`}
-                  title="Vista de tarjetas"
-                >
-                  <span>🔲</span>
-                  Tarjetas
-                </button>
-                <button
-                  onClick={() => setViewMode("table")}
-                  className={`px-4 py-2 rounded-lg transition font-medium flex items-center gap-2 ${
-                    viewMode === "table"
-                      ? "bg-cyan-500 text-white"
-                      : "text-gray-600 hover:bg-gray-200"
-                  }`}
-                  title="Vista de tabla"
-                >
-                  <span>📋</span>
-                  Tabla
-                </button>
-              </div>
-
-              {/* Botón Refrescar */}
-              <button
-                onClick={loadData}
-                disabled={loading}
-                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition font-medium shadow-sm disabled:opacity-50 flex items-center gap-2"
-                title="Actualizar listado"
-              >
-                <span>🔄</span>
-                Actualizar
-              </button>
-            </div>
+    <>
+      <ModuleLayout
+        theme={theme}
+        onBack={onBack}
+        createLabel="Nueva Evaluación"
+        onCreate={openCreateModal}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Buscar por nombre o asignatura..."
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        onRefresh={loadData}
+        loading={loading}
+        error={error}
+      >
+        {evaluations.length === 0 && (
+          <div className="text-center py-12 text-gray-500">
+            <div className="text-6xl mb-4">📝</div>
+            <p className="mb-4">No hay evaluaciones registradas</p>
+            <button
+              onClick={openCreateModal}
+              className={`px-6 py-3 rounded-lg transition font-medium shadow-sm ${theme.primaryBtn}`}
+            >
+              Crear primera evaluación
+            </button>
           </div>
-          
-          {loading && (
-            <div className="text-center py-12">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400"></div>
-              <p className="mt-4 text-gray-500">Cargando evaluaciones...</p>
-            </div>
-          )}
+        )}
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-              <p className="text-red-600">❌ {error}</p>
-            </div>
-          )}
+        {evaluations.length > 0 && filteredEvaluations.length === 0 && (
+          <div className="text-center py-12 text-gray-500">
+            <div className="text-6xl mb-4">🔍</div>
+            <p>No se encontraron evaluaciones con ese criterio de búsqueda</p>
+          </div>
+        )}
 
-          {!loading && !error && evaluations.length === 0 && (
-            <div className="text-center py-12 text-gray-500">
-              <div className="text-6xl mb-4">📝</div>
-              <p className="mb-4">No hay evaluaciones registradas</p>
-              <button
-                onClick={openCreateModal}
-                className="px-6 py-3 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition font-medium shadow-sm"
-              >
-                Crear primera evaluación
-              </button>
-            </div>
-          )}
-
-          {!loading && !error && evaluations.length > 0 && filteredEvaluations.length === 0 && (
-            <div className="text-center py-12 text-gray-500">
-              <div className="text-6xl mb-4">🔍</div>
-              <p>No se encontraron evaluaciones con ese criterio de búsqueda</p>
-            </div>
-          )}
-
-          {!loading && !error && filteredEvaluations.length > 0 && viewMode === "cards" && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredEvaluations.map((evaluation) => (
-                <div
-                  key={evaluation.id}
-                  className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition bg-gradient-to-br from-cyan-50 to-sky-50"
-                >
-                  <div className="text-4xl mb-4">📝</div>
-                  <h3 className="text-xl font-semibold text-gray-700 mb-2">
-                    {evaluation.name}
-                  </h3>
-                  <p className="text-sm text-gray-600 mb-1">Tipo: {evaluation.evaluationType}</p>
-                  <p className="text-sm text-gray-600 mb-1">Estado: {evaluation.evaluationStatus}</p>
-                  <p className="text-sm text-gray-600 mb-1">Nota: {evaluation.grade ?? '-'}</p>
-                  <p className="text-sm text-gray-600 mb-1">Ponderación: {evaluation.weight}</p>
-                  <p className="text-sm text-gray-600 mb-1">Nota máxima: {evaluation.maxScore}</p>
-                  {evaluation.date && (
-                    <p className="text-sm text-gray-500 mb-1">📅 {new Date(evaluation.date).toLocaleDateString()}</p>
-                  )}
-                  <p className="text-sm text-gray-500 mb-1">📚 {getSubjectName(evaluation.subjectId)}</p>
-                  <div className="flex gap-2 mt-4">
-                    <button
-                      onClick={() => openEditModal(evaluation)}
-                      className="flex-1 px-3 py-2 bg-yellow-400 text-white rounded-lg hover:bg-yellow-500 transition font-medium text-sm"
-                    >
-                      ✏️ Editar
-                    </button>
-                    <button
-                      onClick={() => handleDelete(evaluation)}
-                      className="flex-1 px-3 py-2 bg-red-400 text-white rounded-lg hover:bg-red-500 transition font-medium text-sm"
-                    >
-                      🗑️ Eliminar
-                    </button>
-                  </div>
+        {filteredEvaluations.length > 0 && viewMode === "cards" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredEvaluations.map((evaluation) => (
+              <div key={evaluation.id} className={theme.cardClass}>
+                <div className="text-4xl mb-4">📝</div>
+                <h3 className="text-xl font-semibold text-gray-700 mb-2">{evaluation.name}</h3>
+                <p className="text-sm text-gray-600 mb-1">Tipo: {evaluation.evaluationType}</p>
+                <p className="text-sm text-gray-600 mb-1">Estado: {evaluation.evaluationStatus}</p>
+                <p className="text-sm text-gray-600 mb-1">Curso: {getCourseName(evaluation.courseId)}</p>
+                <p className="text-sm text-gray-600 mb-1">Ponderación: {evaluation.weight}%</p>
+                <p className="text-sm text-gray-600 mb-1">Nota máxima: {evaluation.maxScore}</p>
+                {evaluation.date && (
+                  <p className="text-sm text-gray-500 mb-1">{new Date(evaluation.date).toLocaleDateString()}</p>
+                )}
+                <p className="text-sm text-gray-500 mb-1">{getSubjectName(evaluation.subjectId)}</p>
+                <div className="mt-4">
+                  <RecordActions
+                    onView={() => setViewingEvaluation(evaluation)}
+                    onEdit={() => openEditModal(evaluation)}
+                    onDelete={() => handleDelete(evaluation)}
+                    compact
+                    stretch
+                  />
                 </div>
-              ))}
-            </div>
-          )}
-
-          {/* Vista de Tabla */}
-          {!loading && !error && filteredEvaluations.length > 0 && viewMode === "table" && (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-cyan-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Nombre</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Tipo</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Estado</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Nota</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Ponderación</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Nota Máx.</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Fecha</th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Asignatura</th>
-                    <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {filteredEvaluations.map((evaluation) => (
-                    <tr key={evaluation.id} className="hover:bg-cyan-50 transition">
-                      <td className="px-4 py-3 text-sm text-gray-700">{evaluation.name}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{evaluation.evaluationType}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{evaluation.evaluationStatus}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{evaluation.grade ?? '-'}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{evaluation.weight}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{evaluation.maxScore}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{evaluation.date ? new Date(evaluation.date).toLocaleDateString() : "-"}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{getSubjectName(evaluation.subjectId)}</td>
-                      <td className="px-4 py-3 text-sm">
-                        <div className="flex gap-2 justify-center">
-                          <button
-                            onClick={() => openEditModal(evaluation)}
-                            className="px-3 py-1 bg-yellow-400 text-white rounded-lg hover:bg-yellow-500 transition font-medium text-xs"
-                          >
-                            ✏️ Editar
-                          </button>
-                          <button
-                            onClick={() => handleDelete(evaluation)}
-                            className="px-3 py-1 bg-red-400 text-white rounded-lg hover:bg-red-500 transition font-medium text-xs"
-                          >
-                            🗑️ Eliminar
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Modal de Formulario */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-2 z-50 overflow-y-auto min-h-screen">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-4 sm:p-6 overflow-y-auto max-h-[95vh]">
-            <h3 className="text-xl font-bold text-gray-700 mb-4">
-              {editingEvaluation ? "Editar Evaluación" : "Nueva Evaluación"}
-            </h3>
-            {formError && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-                <p className="text-red-600 text-sm">❌ {formError}</p>
               </div>
-            )}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Nombre *</label>
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-                  required
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Tipo</label>
-                <input
-                  type="text"
-                  name="evaluationType"
-                  value={formData.evaluationType}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Estado</label>
-                <input
-                  type="text"
-                  name="evaluationStatus"
-                  value={formData.evaluationStatus}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Descripción</label>
-                <input
-                  type="text"
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Ponderación</label>
-                <input
-                  type="number"
-                  name="weight"
-                  value={formData.weight}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-                  min="0"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Nota máxima</label>
-                <input
-                  type="number"
-                  name="maxScore"
-                  value={formData.maxScore}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-                  min="0"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Nota chilena</label>
-                <input
-                  type="number"
-                  name="grade"
-                  min="1"
-                  max="7"
-                  step="0.1"
-                  value={formData.grade}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Fecha</label>
-                <input
-                  type="date"
-                  name="date"
-                  value={formData.date}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-6">
-                <label className="block text-gray-700 font-medium mb-2">Asignatura</label>
-                <select
-                  name="subjectId"
-                  value={formData.subjectId}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-400 focus:border-transparent"
-                >
-                  <option value="">Sin asignatura</option>
-                  {subjects.map((subject) => (
-                    <option key={subject.id} value={subject.id}>
-                      {subject.subjectName} {subject.subjectCode ? `(${subject.subjectCode})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  disabled={submitting}
-                  className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition font-medium disabled:opacity-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="flex-1 px-4 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition font-medium disabled:opacity-50"
-                >
-                  {submitting ? "Guardando..." : editingEvaluation ? "Actualizar" : "Crear"}
-                </button>
-              </div>
-            </form>
+            ))}
           </div>
-        </div>
+        )}
+
+        {filteredEvaluations.length > 0 && viewMode === "table" && (
+          <div className={theme.tableWrap}>
+            <table className="w-full text-sm">
+              <thead className={theme.tableHead}>
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold">Nombre</th>
+                  <th className="px-4 py-3 text-left font-semibold">Tipo</th>
+                  <th className="px-4 py-3 text-left font-semibold">Estado</th>
+                  <th className="px-4 py-3 text-left font-semibold">Descripción</th>
+                  <th className="px-4 py-3 text-left font-semibold">Ponderación</th>
+                  <th className="px-4 py-3 text-left font-semibold">Nota máx.</th>
+                  <th className="px-4 py-3 text-left font-semibold">Fecha</th>
+                  <th className="px-4 py-3 text-left font-semibold">Asignatura</th>
+                  <th className="px-4 py-3 text-left font-semibold">Curso</th>
+                  <th className="px-4 py-3 text-center font-semibold">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredEvaluations.map((evaluation) => (
+                  <tr key={evaluation.id} className={`border-t border-slate-100 ${theme.tableRowHover}`}>
+                    <td className="px-4 py-3 font-medium text-gray-700">{evaluation.name}</td>
+                    <td className="px-4 py-3 text-gray-600">{evaluation.evaluationType || "—"}</td>
+                    <td className="px-4 py-3 text-gray-600">{evaluation.evaluationStatus || "—"}</td>
+                    <td className="px-4 py-3 text-gray-600 max-w-[200px] truncate" title={evaluation.description ?? undefined}>
+                      {evaluation.description || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {evaluation.weight != null ? `${evaluation.weight}%` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{evaluation.maxScore ?? "—"}</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {evaluation.date ? new Date(evaluation.date).toLocaleDateString("es-CL") : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{getSubjectName(evaluation.subjectId)}</td>
+                    <td className="px-4 py-3 text-gray-600">{getCourseName(evaluation.courseId)}</td>
+                    <td className="px-4 py-3">
+                      <RecordActions
+                        onView={() => setViewingEvaluation(evaluation)}
+                        onEdit={() => openEditModal(evaluation)}
+                        onDelete={() => handleDelete(evaluation)}
+                        compact
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </ModuleLayout>
+
+      {viewingEvaluation && (
+        <ViewDetailModal
+          title="Detalle de la evaluación"
+          subtitle={viewingEvaluation.name}
+          fields={getEvaluationDetailFields(viewingEvaluation)}
+          onClose={() => setViewingEvaluation(null)}
+          theme={theme}
+        />
       )}
-    </div>
+
+      {showModal && (
+        <FormModal
+          title={editingEvaluation ? "Editar Evaluación" : "Nueva Evaluación"}
+          subtitle={editingEvaluation ? "Modifica los datos de la evaluación" : "Crea una nueva evaluación académica"}
+          theme={theme}
+          onClose={closeModal}
+          onSubmit={handleSubmit}
+          error={formError}
+          submitting={submitting}
+          submitLabel={editingEvaluation ? "Guardar cambios" : "Crear evaluación"}
+        >
+          <FormField label="Nombre" required fullWidth>
+            <input type="text" name="name" value={formData.name} onChange={handleInputChange} className={inputClass} required />
+          </FormField>
+          <FormField label="Tipo">
+            <select name="evaluationType" value={formData.evaluationType} onChange={handleInputChange} className={`${inputClass} bg-white`}>
+              <option value="">Seleccionar</option>
+              <option value="PRUEBA">PRUEBA</option>
+              <option value="TRABAJO">TRABAJO</option>
+              <option value="CONTROL">CONTROL</option>
+              <option value="EXAMEN">EXAMEN</option>
+            </select>
+          </FormField>
+          <FormField label="Estado">
+            <select name="evaluationStatus" value={formData.evaluationStatus} onChange={handleInputChange} className={`${inputClass} bg-white`}>
+              <option value="ACTIVO">ACTIVO</option>
+              <option value="CERRADA">CERRADA</option>
+              <option value="CANCELADA">CANCELADA</option>
+            </select>
+          </FormField>
+          <FormField label="Descripción" fullWidth>
+            <input type="text" name="description" value={formData.description} onChange={handleInputChange} className={inputClass} />
+          </FormField>
+          <FormField
+            label="Ponderación (%)"
+            fullWidth
+            hint="Porcentaje de importancia en la nota final. Ej: Prueba 30%, Trabajo 20%. Las evaluaciones de una asignatura deberían sumar 100%."
+          >
+            <input type="number" name="weight" value={formData.weight} onChange={handleInputChange} placeholder="Ej: 30" className={inputClass} min={0} max={100} />
+          </FormField>
+          <FormField label="Nota máxima">
+            <input type="number" name="maxScore" value={formData.maxScore} onChange={handleInputChange} className={inputClass} min="0" />
+          </FormField>
+          <FormField label="Fecha">
+            <input type="date" name="date" value={formData.date} onChange={handleInputChange} className={inputClass} />
+          </FormField>
+          <FormField label="Asignatura" fullWidth>
+            <select name="subjectId" value={formData.subjectId} onChange={handleInputChange} className={`${inputClass} bg-white`}>
+              <option value="">Sin asignatura</option>
+              {subjects.map((subject) => (
+                <option key={subject.id} value={subject.id}>
+                  {subject.subjectName} {subject.subjectCode ? `(${subject.subjectCode})` : ""}
+                </option>
+              ))}
+            </select>
+          </FormField>
+          <FormField label="Curso" fullWidth>
+            <select name="courseId" value={formData.courseId} onChange={handleInputChange} className={`${inputClass} bg-white`}>
+              <option value="">Sin curso</option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>{formatCourseLabel(course)}</option>
+              ))}
+            </select>
+          </FormField>
+        </FormModal>
+      )}
+    </>
   );
 }
 

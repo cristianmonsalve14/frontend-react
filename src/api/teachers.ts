@@ -1,4 +1,6 @@
-const API_URL = "http://localhost:8082/teachers";
+import { apiUrl, getJsonAuthHeaders } from "./client";
+
+const API_URL = apiUrl("/teachers");
 
 // ===== TIPOS =====
 export interface Teacher {
@@ -34,14 +36,7 @@ export type TeacherFormData = {
 
 // ===== HEADERS CON TOKEN =====
 function getAuthHeaders() {
-  const token = localStorage.getItem("token");
-  if (!token) {
-    console.error("No JWT token found in localStorage. Debes iniciar sesión.");
-  }
-  return {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${token || ""}`
-  };
+  return getJsonAuthHeaders();
 }
 
 // ===== CREATE =====

@@ -1,5 +1,7 @@
 
 
+import { apiUrl, getAuthHeaders } from "./client";
+
 export interface Student {
   id: number;
   rut: string;
@@ -14,6 +16,7 @@ export interface Student {
   city?: string;
   dateOfBirth?: string;
   admissionDate?: string;
+  withdrawalDate?: string;
   enrollmentNumber?: string;
   studentStatus?: string;
   guardianId?: number;
@@ -25,18 +28,7 @@ export interface Student {
 
 export type CreateStudentDto = Omit<Student, 'id' | 'createdAt' | 'updatedAt'>;
 
-const API_URL = "http://localhost:8082/students";
-
-const getAuthHeaders = () => {
-  const token = localStorage.getItem("token");
-  if (!token) {
-    throw new Error("No hay token de autenticación");
-  }
-  return {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${token}`,
-  };
-};
+const API_URL = apiUrl("/students");
 
 export const getStudents = async (): Promise<Student[]> => {
   try {
@@ -55,7 +47,7 @@ export const getStudents = async (): Promise<Student[]> => {
     return data;
   } catch (error) {
     if (error instanceof TypeError && error.message.includes("fetch")) {
-      throw new Error("No se puede conectar al servidor académico. Verifica que el academicService esté corriendo en http://localhost:8082");
+      throw new Error("No se puede conectar al API Gateway. Verifica que apiGetaway esté corriendo en http://localhost:8090");
     }
     throw error;
   }

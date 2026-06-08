@@ -8,7 +8,7 @@ Frontend del sistema académico **Libro Digital** desarrollado para el ramo Full
 
 Aplicación web construida con React + TypeScript + Tailwind CSS que permite la gestión académica completa.
 
-Se conecta a microservicios backend (`authService` y `academicService`) mediante API REST protegidas con JWT.
+Se conecta al **API Gateway** (`http://localhost:8090`) que enruta hacia los microservicios backend mediante API REST protegidas con JWT.
 
 ---
 
@@ -75,28 +75,23 @@ Se conecta a microservicios backend (`authService` y `academicService`) mediante
 
 ## 🔌 Conexión Backend
 
-### AuthService (puerto 8081)
+### API Gateway (puerto 8090)
 
-Endpoint:
-http://localhost:8081/auth/login
+Todas las peticiones pasan por:
 
-Función:
-- Genera token JWT
+http://localhost:8090
 
----
+Configurado en `.env`:
 
-### AcademicService (puerto 8082)
+VITE_API_URL=http://localhost:8090
 
-Endpoints:
+### Rutas enrutadas
 
-- /students
-- /teachers
-- /subjects
-- /courses
-- /enrollments
-- /evaluations
+- `/auth/**` → authService (8091)
+- `/students`, `/courses`, `/teachers`, etc. → academicService (8092)
 
-Requiere:
+Requiere en rutas protegidas:
+
 Authorization: Bearer {token}
 
 ---
@@ -115,7 +110,7 @@ npm run dev
 
 Abrir en navegador:
 
-http://localhost:5173
+http://localhost:8094
 
 ---
 
@@ -137,6 +132,7 @@ Authorization: Bearer {token}
 frontend-react/
 ├── src/
 │   ├── api/
+│   │   ├── client.ts
 │   │   ├── auth.ts
 │   │   ├── courses.ts
 │   │   ├── students.ts

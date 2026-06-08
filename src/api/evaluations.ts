@@ -1,4 +1,6 @@
-const API_URL = "http://localhost:8082/evaluations";
+import { apiUrl, getJsonAuthHeaders } from "./client";
+
+const API_URL = apiUrl("/evaluations");
 
 // ===== TYPES =====
 export interface Evaluation {
@@ -12,7 +14,6 @@ export interface Evaluation {
   maxScore?: number;
   weight?: number;
   description?: string;
-  grade?: number;
 }
 
 export type CreateEvaluationDto = {
@@ -25,22 +26,10 @@ export type CreateEvaluationDto = {
   maxScore?: number;
   weight?: number;
   description?: string;
-  grade?: number;
 };
 
 // ===== AUTH HEADERS =====
-const getAuthHeaders = () => {
-  const token = localStorage.getItem("token");
-
-  if (!token) {
-    console.error("❌ No hay token en localStorage");
-  }
-
-  return {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${token}`,
-  };
-};
+const getAuthHeaders = () => getJsonAuthHeaders();
 
 // ===== GET ALL =====
 export const getEvaluations = async (): Promise<Evaluation[]> => {

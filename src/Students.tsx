@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
 import { getStudents, createStudent, updateStudent, deleteStudent } from "./api/students";
 import type { Student, CreateStudentDto } from "./api/students";
+import { getGuardians } from "./api/guardians";
+import type { Guardian } from "./api/guardians";
+import ViewDetailModal, { type DetailField } from "./components/ViewDetailModal";
+import { moduleThemes } from "./theme/moduleThemes";
+import ModuleLayout from "./components/ModuleLayout";
+import RecordActions from "./components/RecordActions";
+import FormModal, { FormField, formInputClass } from "./components/FormModal";
 
 interface FormData {
   rut: string;
@@ -15,10 +22,10 @@ interface FormData {
   city?: string;
   dateOfBirth?: string;
   admissionDate?: string;
+  withdrawalDate?: string;
   enrollmentNumber?: string;
   studentStatus?: string;
-  guardianId?: number;
-  userId?: number;
+  guardianId?: string;
 }
 
 interface StudentsProps {
@@ -26,9 +33,11 @@ interface StudentsProps {
 }
 
 function Students({ onBack }: StudentsProps) {
+  const theme = moduleThemes.students;
 
   // ===== STATE =====
   const [students, setStudents] = useState<Student[]>([]);
+  const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -48,14 +57,17 @@ function Students({ onBack }: StudentsProps) {
     dateOfBirth: "",
     admissionDate: "",
     enrollmentNumber: "",
-    studentStatus: "",
-    guardianId: undefined,
-    userId: undefined,
+    studentStatus: "ACTIVO",
+    guardianId: "",
   });
 
   const [formError, setFormError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [searchTerm, setSearchTerm] = useState("");
+  const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
+
+  const formatDate = (dateStr?: string) =>
+    dateStr ? new Date(dateStr).toLocaleDateString("es-CL") : undefined;
 
   // ===== LOAD DATA =====
   const loadStudents = async () => {
@@ -63,8 +75,12 @@ function Students({ onBack }: StudentsProps) {
       setLoading(true);
       setError(null);
 
-      const data = await getStudents();
+      const [data, guardiansData] = await Promise.all([
+        getStudents(),
+        getGuardians().catch(() => []),
+      ]);
       setStudents(data);
+      setGuardians(guardiansData);
 
     } catch (err) {
       setError("Error al cargar estudiantes");
@@ -81,6 +97,36 @@ function Students({ onBack }: StudentsProps) {
     };
     fetchData();
   }, []);
+
+  const getGuardianName = (guardianId?: number) => {
+    if (!guardianId) return "-";
+    const guardian = guardians.find((g) => g.id === guardianId);
+    return guardian ? `${guardian.firstName} ${guardian.lastName}` : `ID: ${guardianId}`;
+  };
+
+  const getStudentFullName = (student: Student) =>
+    [student.firstName, student.secondName, student.lastName, student.motherLastName]
+      .filter(Boolean)
+      .join(" ");
+
+  const getStudentDetailFields = (student: Student): DetailField[] => [
+    { label: "RUT", value: student.rut },
+    { label: "Nombre", value: student.firstName },
+    { label: "Segundo nombre", value: student.secondName },
+    { label: "Apellido paterno", value: student.lastName },
+    { label: "Apellido materno", value: student.motherLastName },
+    { label: "Email", value: student.email },
+    { label: "Teléfono", value: student.phone },
+    { label: "Dirección", value: student.address },
+    { label: "Comuna", value: student.commune },
+    { label: "Ciudad", value: student.city },
+    { label: "Fecha de nacimiento", value: formatDate(student.dateOfBirth) },
+    { label: "Fecha de ingreso", value: formatDate(student.admissionDate) },
+    { label: "N° matrícula", value: student.enrollmentNumber },
+    { label: "Fecha de retiro", value: formatDate(student.withdrawalDate) },
+    { label: "Estado", value: student.studentStatus },
+    { label: "Apoderado", value: getGuardianName(student.guardianId) },
+  ];
 
   // ===== FILTER =====
   const filteredStudents = students.filter((student) => {
@@ -113,9 +159,8 @@ function Students({ onBack }: StudentsProps) {
       dateOfBirth: "",
       admissionDate: "",
       enrollmentNumber: "",
-      studentStatus: "",
-      guardianId: undefined,
-      userId: undefined,
+      studentStatus: "ACTIVO",
+      guardianId: "",
     });
 
     setShowModal(true);
@@ -139,9 +184,9 @@ function Students({ onBack }: StudentsProps) {
       dateOfBirth: student.dateOfBirth ?? "",
       admissionDate: student.admissionDate ?? "",
       enrollmentNumber: student.enrollmentNumber ?? "",
-      studentStatus: student.studentStatus ?? "",
-      guardianId: student.guardianId ?? undefined,
-      userId: student.userId ?? undefined,
+      studentStatus: student.studentStatus ?? "ACTIVO",
+      guardianId: student.guardianId?.toString() ?? "",
+      withdrawalDate: student.withdrawalDate ?? "",
     });
 
     setShowModal(true);
@@ -197,9 +242,9 @@ function Students({ onBack }: StudentsProps) {
         dateOfBirth: formData.dateOfBirth || undefined,
         admissionDate: formData.admissionDate || undefined,
         enrollmentNumber: formData.enrollmentNumber?.trim() || undefined,
-        studentStatus: formData.studentStatus?.trim() || undefined,
-        guardianId: formData.guardianId || undefined,
-        userId: formData.userId || undefined,
+        studentStatus: formData.studentStatus?.trim() || "ACTIVO",
+        withdrawalDate: formData.withdrawalDate || undefined,
+        guardianId: formData.guardianId ? parseInt(formData.guardianId) : undefined,
       };
 
       if (editingStudent) {
@@ -237,389 +282,214 @@ function Students({ onBack }: StudentsProps) {
     }
   };
 
+  const inputClass = formInputClass(theme);
+
 // ===== RENDER =====
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-teal-50 to-cyan-50 p-8">
-      <div className="max-w-7xl mx-auto">
-
-        {/* BOTÓN VOLVER */}
-        <div className="mb-6">
-          <button
-            onClick={onBack}
-            className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition font-medium"
-          >
-            ← Volver
-          </button>
-        </div>
-
-        {/* CONTENEDOR PRINCIPAL */}
-        <div className="bg-white rounded-xl shadow-md p-8">
-
-          {/* HEADER */}
-          <div className="flex flex-col gap-4 mb-6">
-
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-3xl font-bold text-gray-700">👨‍🎓 Estudiantes</h2>
-                <p className="text-gray-500">Gestión de estudiantes</p>
-              </div>
-
-              <button
-                onClick={openCreateModal}
-                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
-              >
-                ➕ Nuevo Estudiante
-              </button>
-            </div>
-
-            {/* BUSCADOR */}
-            <input
-              type="text"
-              placeholder="Buscar por nombre, rut o email..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="px-4 py-2 border rounded-lg"
-            />
-
-            {/* CAMBIO DE VISTA */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setViewMode("cards")}
-                className={`px-3 py-2 rounded ${
-                  viewMode === "cards" ? "bg-green-500 text-white" : "bg-gray-200"
-                }`}
-              >
-                Tarjetas
-              </button>
-
-              <button
-                onClick={() => setViewMode("table")}
-                className={`px-3 py-2 rounded ${
-                  viewMode === "table" ? "bg-green-500 text-white" : "bg-gray-200"
-                }`}
-              >
-                Tabla
-              </button>
-            </div>
-          </div>
-
-          {/* LOADING */}
-          {loading && (
-            <div className="text-center py-6">
-              <p>Cargando estudiantes...</p>
-            </div>
-          )}
-
-          {/* ERROR */}
-          {error && (
-            <div className="bg-red-100 text-red-600 p-4 mb-4 rounded">
-              {error}
-            </div>
-          )}
-
-          {/* LISTA EN TARJETAS */}
-          {!loading && viewMode === "cards" && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredStudents.map((student) => (
-                <div
-                  key={student.id}
-                  className="border p-4 rounded-lg shadow-sm bg-green-50"
-                >
-                  <h3 className="font-bold text-lg">
-                    {student.firstName} {student.secondName} {student.lastName} {student.motherLastName}
-                  </h3>
-
-                  <p>RUT: {student.rut}</p>
-                  <p>Email: {student.email}</p>
-                  <p>Teléfono: {student.phone || '-'}</p>
-                  <p>Apoderado: {student.guardianId ? 'Apoderado' : '-'}</p>
-                  <p>Estado: {student.studentStatus}</p>
-
-                  <div className="flex gap-2 mt-3">
-                    <button
-                      onClick={() => openEditModal(student)}
-                      className="bg-yellow-400 px-3 py-1 rounded text-white"
-                    >
-                      Editar
-                    </button>
-
-                    <button
-                      onClick={() => handleDelete(student)}
-                      className="bg-red-500 px-3 py-1 rounded text-white"
-                    >
-                      Eliminar
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-{/* TABLA */}
-          {!loading && viewMode === "table" && (
-            <div className="overflow-x-auto mt-6">
-              <table className="w-full border text-xs md:text-sm">
-                <thead className="bg-green-100">
-                  <tr>
-                    <th className="p-2 text-left">RUT</th>
-                    <th className="p-2 text-left">Nombre</th>
-                    <th className="p-2 text-left">Segundo Nombre</th>
-                    <th className="p-2 text-left">Apellido Paterno</th>
-                    <th className="p-2 text-left">Apellido Materno</th>
-                    <th className="p-2 text-left">Email</th>
-                    <th className="p-2 text-left">Teléfono</th>
-                    <th className="p-2 text-left">Dirección</th>
-                    <th className="p-2 text-left">Comuna</th>
-                    <th className="p-2 text-left">Ciudad</th>
-                    <th className="p-2 text-left">Fecha Nac.</th>
-                    <th className="p-2 text-left">Fecha Ingreso</th>
-                    <th className="p-2 text-left">Matrícula</th>
-                    <th className="p-2 text-left">Año Ingreso</th>
-                    <th className="p-2 text-left">Nacionalidad</th>
-                    <th className="p-2 text-left">Estado</th>
-                    <th className="p-2 text-left">Apoderado</th>
-                    <th className="p-2 text-left">User ID</th>
-                    <th className="p-2 text-center">Acciones</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {filteredStudents.map((student) => (
-                    <tr key={student.id} className="border-t">
-                      <td className="p-2">{student.rut}</td>
-                      <td className="p-2">{student.firstName}</td>
-                      <td className="p-2">{student.secondName}</td>
-                      <td className="p-2">{student.lastName}</td>
-                      <td className="p-2">{student.motherLastName}</td>
-                      <td className="p-2">{student.email}</td>
-                      <td className="p-2">{student.phone}</td>
-                      <td className="p-2">{student.address}</td>
-                      <td className="p-2">{student.commune}</td>
-                      <td className="p-2">{student.city}</td>
-                      <td className="p-2">{student.dateOfBirth}</td>
-                      <td className="p-2">{student.admissionDate}</td>
-                      <td className="p-2">{student.enrollmentNumber}</td>
-
-                      <td className="p-2">{student.studentStatus}</td>
-                      <td className="p-2">{student.guardianId ? 'Apoderado' : '-'}</td>
-                      <td className="p-2">{student.userId}</td>
-                      <td className="p-2 text-center">
-                        <div className="flex gap-2 justify-center">
-                          <button
-                            onClick={() => openEditModal(student)}
-                            className="bg-yellow-400 text-white px-2 py-1 rounded"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            onClick={() => handleDelete(student)}
-                            className="bg-red-500 text-white px-2 py-1 rounded"
-                          >
-                            Eliminar
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-        </div>
-      </div>
-
-      {/* MODAL */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-lg mx-auto my-8 relative max-h-[90vh] overflow-y-auto">
+    <>
+      <ModuleLayout
+        theme={theme}
+        onBack={onBack}
+        createLabel="Nuevo Estudiante"
+        onCreate={openCreateModal}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Buscar por nombre, RUT o email..."
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        onRefresh={loadStudents}
+        loading={loading}
+        error={error}
+      >
+        {students.length === 0 && (
+          <div className="text-center py-12 text-gray-500">
+            <div className="text-6xl mb-4">👨‍🎓</div>
+            <p className="mb-4">No hay estudiantes disponibles</p>
             <button
-              onClick={closeModal}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-2xl font-bold"
-              aria-label="Cerrar"
+              onClick={openCreateModal}
+              className={`px-6 py-3 rounded-lg transition font-medium shadow-sm ${theme.primaryBtn}`}
             >
-              ×
+              Crear primer estudiante
             </button>
-            <h3 className="text-2xl font-bold mb-6 text-gray-700">{editingStudent ? "Editar Estudiante" : "Nuevo Estudiante"}</h3>
-            {formError && (
-              <div className="bg-red-100 border border-red-300 text-red-700 rounded-lg p-3 mb-4">
-                {formError}
-              </div>
-            )}
-            <form onSubmit={handleSubmit}>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">RUT *</label>
-                <input
-                  name="rut"
-                  value={formData.rut}
-                  onChange={handleInputChange}
-                  placeholder="RUT"
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Nombre *</label>
-                <input
-                  name="firstName"
-                  value={formData.firstName}
-                  onChange={handleInputChange}
-                  placeholder="Nombre"
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Segundo Nombre</label>
-                <input
-                  name="secondName"
-                  value={formData.secondName}
-                  onChange={handleInputChange}
-                  placeholder="Segundo Nombre"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Apellido Paterno *</label>
-                <input
-                  name="lastName"
-                  value={formData.lastName}
-                  onChange={handleInputChange}
-                  placeholder="Apellido Paterno"
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Apellido Materno *</label>
-                <input
-                  name="motherLastName"
-                  value={formData.motherLastName}
-                  onChange={handleInputChange}
-                  placeholder="Apellido Materno"
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Email *</label>
-                <input
-                  name="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  placeholder="Email"
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Teléfono</label>
-                <input
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                  placeholder="Teléfono"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Dirección</label>
-                <input
-                  name="address"
-                  value={formData.address}
-                  onChange={handleInputChange}
-                  placeholder="Dirección"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Comuna</label>
-                <input
-                  name="commune"
-                  value={formData.commune}
-                  onChange={handleInputChange}
-                  placeholder="Comuna"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Ciudad</label>
-                <input
-                  name="city"
-                  value={formData.city}
-                  onChange={handleInputChange}
-                  placeholder="Ciudad"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Fecha de Nacimiento</label>
-                <input
-                  type="date"
-                  name="dateOfBirth"
-                  value={formData.dateOfBirth || ""}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Fecha de Ingreso</label>
-                <input
-                  type="date"
-                  name="admissionDate"
-                  value={formData.admissionDate || ""}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Matrícula</label>
-                <input
-                  name="enrollmentNumber"
-                  value={formData.enrollmentNumber}
-                  onChange={handleInputChange}
-                  placeholder="Matrícula"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                />
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Estado</label>
-                <select
-                  name="studentStatus"
-                  value={formData.studentStatus}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-400 focus:border-transparent bg-white"
-                >
-                  <option value="">Seleccione estado</option>
-                  <option value="ACTIVO">ACTIVO</option>
-                  <option value="SUSPENDIDO">SUSPENDIDO</option>
-                  <option value="MATRICULA CANCELADA">MATRICULA CANCELADA</option>
-                  <option value="EGRESADO">EGRESADO</option>
-                  <option value="RETIRADO">RETIRADO</option>
-                </select>
-              </div>
-              <div className="flex justify-end gap-2 mt-6">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition font-medium"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-medium"
-                >
-                  {editingStudent ? "Actualizar" : "Crear"}
-                </button>
-              </div>
-            </form>
           </div>
-        </div>
+        )}
+
+        {students.length > 0 && filteredStudents.length === 0 && (
+          <div className="text-center py-12 text-gray-500">
+            <div className="text-6xl mb-4">🔍</div>
+            <p className="mb-2">No se encontraron estudiantes</p>
+            <p className="text-sm">Intenta con otro término de búsqueda</p>
+          </div>
+        )}
+
+        {filteredStudents.length > 0 && viewMode === "cards" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredStudents.map((student) => (
+              <div key={student.id} className={theme.cardClass}>
+                <h3 className="font-bold text-lg">
+                  {student.firstName} {student.secondName} {student.lastName} {student.motherLastName}
+                </h3>
+                <p>RUT: {student.rut}</p>
+                <p>Email: {student.email}</p>
+                <p>Teléfono: {student.phone || "-"}</p>
+                <p>Apoderado: {getGuardianName(student.guardianId)}</p>
+                <p>Estado: {student.studentStatus}</p>
+                <div className="mt-3">
+                  <RecordActions
+                    onView={() => setViewingStudent(student)}
+                    onEdit={() => openEditModal(student)}
+                    onDelete={() => handleDelete(student)}
+                    compact
+                    stretch
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {filteredStudents.length > 0 && viewMode === "table" && (
+          <div className={theme.tableWrap}>
+            <table className="w-full text-sm">
+              <thead className={theme.tableHead}>
+                <tr>
+                  <th className="p-2 text-left">RUT</th>
+                  <th className="p-2 text-left">Nombre</th>
+                  <th className="p-2 text-left">Segundo Nombre</th>
+                  <th className="p-2 text-left">Apellido Paterno</th>
+                  <th className="p-2 text-left">Apellido Materno</th>
+                  <th className="p-2 text-left">Email</th>
+                  <th className="p-2 text-left">Teléfono</th>
+                  <th className="p-2 text-left">Dirección</th>
+                  <th className="p-2 text-left">Comuna</th>
+                  <th className="p-2 text-left">Ciudad</th>
+                  <th className="p-2 text-left">Fecha Nac.</th>
+                  <th className="p-2 text-left">Fecha Ingreso</th>
+                  <th className="p-2 text-left">Matrícula</th>
+                  <th className="p-2 text-left">Retiro</th>
+                  <th className="p-2 text-left">Estado</th>
+                  <th className="p-2 text-left">Apoderado</th>
+                  <th className="p-2 text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredStudents.map((student) => (
+                  <tr key={student.id} className={`border-t border-slate-100 ${theme.tableRowHover}`}>
+                    <td className="p-2">{student.rut}</td>
+                    <td className="p-2">{student.firstName}</td>
+                    <td className="p-2">{student.secondName}</td>
+                    <td className="p-2">{student.lastName}</td>
+                    <td className="p-2">{student.motherLastName}</td>
+                    <td className="p-2">{student.email}</td>
+                    <td className="p-2">{student.phone}</td>
+                    <td className="p-2">{student.address}</td>
+                    <td className="p-2">{student.commune}</td>
+                    <td className="p-2">{student.city}</td>
+                    <td className="p-2">{student.dateOfBirth}</td>
+                    <td className="p-2">{student.admissionDate}</td>
+                    <td className="p-2">{student.enrollmentNumber}</td>
+                    <td className="p-2">{student.withdrawalDate ?? "-"}</td>
+                    <td className="p-2">{student.studentStatus}</td>
+                    <td className="p-2">{getGuardianName(student.guardianId)}</td>
+                    <td className="p-2">
+                      <RecordActions
+                        onView={() => setViewingStudent(student)}
+                        onEdit={() => openEditModal(student)}
+                        onDelete={() => handleDelete(student)}
+                        compact
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </ModuleLayout>
+
+      {viewingStudent && (
+        <ViewDetailModal
+          title="Detalle del estudiante"
+          subtitle={getStudentFullName(viewingStudent)}
+          fields={getStudentDetailFields(viewingStudent)}
+          onClose={() => setViewingStudent(null)}
+          theme={theme}
+        />
       )}
-    </div>
+
+      {showModal && (
+        <FormModal
+          title={editingStudent ? "Editar Estudiante" : "Nuevo Estudiante"}
+          subtitle={editingStudent ? "Modifica los datos del alumno" : "Registra un nuevo estudiante"}
+          theme={theme}
+          onClose={closeModal}
+          onSubmit={handleSubmit}
+          error={formError}
+          submitLabel={editingStudent ? "Guardar cambios" : "Crear estudiante"}
+          size="xl"
+        >
+          <FormField label="RUT" required>
+            <input name="rut" value={formData.rut} onChange={handleInputChange} required className={inputClass} />
+          </FormField>
+          <FormField label="Nombre" required>
+            <input name="firstName" value={formData.firstName} onChange={handleInputChange} required className={inputClass} />
+          </FormField>
+          <FormField label="Segundo nombre">
+            <input name="secondName" value={formData.secondName} onChange={handleInputChange} className={inputClass} />
+          </FormField>
+          <FormField label="Apellido paterno" required>
+            <input name="lastName" value={formData.lastName} onChange={handleInputChange} required className={inputClass} />
+          </FormField>
+          <FormField label="Apellido materno" required>
+            <input name="motherLastName" value={formData.motherLastName} onChange={handleInputChange} required className={inputClass} />
+          </FormField>
+          <FormField label="Email" required>
+            <input name="email" value={formData.email} onChange={handleInputChange} required className={inputClass} />
+          </FormField>
+          <FormField label="Teléfono">
+            <input name="phone" value={formData.phone} onChange={handleInputChange} className={inputClass} />
+          </FormField>
+          <FormField label="Dirección" fullWidth>
+            <input name="address" value={formData.address} onChange={handleInputChange} className={inputClass} />
+          </FormField>
+          <FormField label="Comuna">
+            <input name="commune" value={formData.commune} onChange={handleInputChange} className={inputClass} />
+          </FormField>
+          <FormField label="Ciudad">
+            <input name="city" value={formData.city} onChange={handleInputChange} className={inputClass} />
+          </FormField>
+          <FormField label="Fecha de nacimiento">
+            <input type="date" name="dateOfBirth" value={formData.dateOfBirth || ""} onChange={handleInputChange} className={inputClass} />
+          </FormField>
+          <FormField label="Fecha de ingreso">
+            <input type="date" name="admissionDate" value={formData.admissionDate || ""} onChange={handleInputChange} className={inputClass} />
+          </FormField>
+          <FormField label="N° matrícula">
+            <input name="enrollmentNumber" value={formData.enrollmentNumber} onChange={handleInputChange} className={inputClass} />
+          </FormField>
+          <FormField label="Apoderado" fullWidth>
+            <select name="guardianId" value={formData.guardianId} onChange={handleInputChange} className={`${inputClass} bg-white`}>
+              <option value="">Sin apoderado</option>
+              {guardians.map((g) => (
+                <option key={g.id} value={g.id}>{g.firstName} {g.lastName} ({g.relationship})</option>
+              ))}
+            </select>
+          </FormField>
+          <FormField label="Fecha de retiro">
+            <input type="date" name="withdrawalDate" value={formData.withdrawalDate || ""} onChange={handleInputChange} className={inputClass} />
+          </FormField>
+          <FormField label="Estado">
+            <select name="studentStatus" value={formData.studentStatus} onChange={handleInputChange} className={`${inputClass} bg-white`}>
+              <option value="ACTIVO">ACTIVO</option>
+              <option value="SUSPENDIDO">SUSPENDIDO</option>
+              <option value="MATRICULA CANCELADA">MATRICULA CANCELADA</option>
+              <option value="EGRESADO">EGRESADO</option>
+              <option value="RETIRADO">RETIRADO</option>
+            </select>
+          </FormField>
+        </FormModal>
+      )}
+    </>
   );
 }
 

@@ -1,5 +1,7 @@
 
 
+import { apiUrl, getAuthHeaders } from "./client";
+
 export interface Course {
   id: number;
   name: string; // Nombre del curso
@@ -29,18 +31,7 @@ export interface CreateCourseDto {
   courseStatus?: string;
 }
 
-const API_URL = "http://localhost:8082/courses";
-
-const getAuthHeaders = () => {
-  const token = localStorage.getItem("token");
-  if (!token) {
-    throw new Error("No hay token de autenticación");
-  }
-  return {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${token}`,
-  };
-};
+const API_URL = apiUrl("/courses");
 
 export const getCourses = async (): Promise<Course[]> => {
   try {
@@ -59,7 +50,7 @@ export const getCourses = async (): Promise<Course[]> => {
     return data;
   } catch (error) {
     if (error instanceof TypeError && error.message.includes("fetch")) {
-      throw new Error("No se puede conectar al servidor académico. Verifica que el academicService esté corriendo en http://localhost:8082", { cause: error });
+      throw new Error("No se puede conectar al API Gateway. Verifica que apiGetaway esté corriendo en http://localhost:8090");
     }
     throw error;
   }

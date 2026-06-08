@@ -7,7 +7,7 @@ const initialFormData: FormData = {
   email: "",
   phone: "",
   specialization: "",
-  teacherStatus: "",
+  teacherStatus: "ACTIVO",
   address: "",
   commune: "",
   city: "",
@@ -20,6 +20,11 @@ import { useState, useEffect } from "react";
 // import { useNavigate } from "react-router-dom";
 import { getTeachers, createTeacher, updateTeacher, deleteTeacher } from "./api/teachers";
 import type { Teacher } from "./api/teachers";
+import ViewDetailModal, { type DetailField } from "./components/ViewDetailModal";
+import { moduleThemes } from "./theme/moduleThemes";
+import ModuleLayout from "./components/ModuleLayout";
+import RecordActions from "./components/RecordActions";
+import FormModal, { FormField, formInputClass } from "./components/FormModal";
 type TeacherFull = Teacher & {
   address?: string;
   commune?: string;
@@ -56,15 +61,42 @@ type TeachersProps = {
 };
 
 function Teachers({ onBack }: TeachersProps) {
+  const theme = moduleThemes.teachers;
   // --- HANDLERS Y STATE ---
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+  const [searchTerm, setSearchTerm] = useState("");
   const [teachers, setTeachers] = useState<TeacherFull[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [viewingTeacher, setViewingTeacher] = useState<TeacherFull | null>(null);
+
+  const formatDate = (dateStr?: string | null) =>
+    dateStr ? new Date(dateStr).toLocaleDateString("es-CL") : undefined;
+
+  const getTeacherFullName = (t: TeacherFull) =>
+    [t.firstName, t.lastName, t.secondLastName].filter(Boolean).join(" ");
+
+  const getTeacherDetailFields = (t: TeacherFull): DetailField[] => [
+    { label: "RUT", value: t.rut },
+    { label: "Nombre", value: t.firstName },
+    { label: "Apellido paterno", value: t.lastName },
+    { label: "Apellido materno", value: t.secondLastName },
+    { label: "Email", value: t.email },
+    { label: "Teléfono", value: t.phone },
+    { label: "Especialidad", value: t.specialization },
+    { label: "Estado", value: t.teacherStatus },
+    { label: "Dirección", value: t.address },
+    { label: "Comuna", value: t.commune },
+    { label: "Ciudad", value: t.city },
+    { label: "N° empleado", value: t.employeeNumber },
+    { label: "Nivel educacional", value: t.educationLevel },
+    { label: "Fecha contrato", value: formatDate(t.hireDate) },
+    { label: "Tipo contrato", value: t.contractType },
+  ];
 
   // --- HANDLERS ---
   const loadTeachers = async () => {
@@ -141,8 +173,8 @@ function Teachers({ onBack }: TeachersProps) {
     setSubmitting(true);
     setError(null);
     // Validación mínima
-    if (!formData.rut || !formData.firstName || !formData.lastName) {
-      setError("RUT, nombre y apellido son obligatorios");
+    if (!formData.rut || !formData.firstName || !formData.lastName || !formData.email?.trim()) {
+      setError("RUT, nombre, apellido y email son obligatorios");
       setSubmitting(false);
       return;
     }
@@ -164,358 +196,209 @@ function Teachers({ onBack }: TeachersProps) {
   };
 
   const getNombreCompleto = (t: Teacher) => [t.firstName, t.lastName].filter(Boolean).join(" ");
+  const filteredTeachers = teachers.filter((t) => {
+    const query = searchTerm.toLowerCase();
+    return (
+      (t.rut ?? "").toLowerCase().includes(query) ||
+      (t.firstName ?? "").toLowerCase().includes(query) ||
+      (t.lastName ?? "").toLowerCase().includes(query) ||
+      (t.email ?? "").toLowerCase().includes(query) ||
+      (t.specialization ?? "").toLowerCase().includes(query)
+    );
+  });
+  const inputClass = formInputClass(theme);
+
+  const closeTeacherModal = () => {
+    setShowModal(false);
+    setEditId(null);
+    setFormData(initialFormData);
+  };
 
   return (
-    <div className="max-w-4xl mx-auto p-8 bg-white rounded-xl shadow-md border border-gray-100 mt-8">
-      {/* Botón Volver al Dashboard */}
-      <div className="mb-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium"
-        >
-          ← Volver
-        </button>
-      </div>
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
-        <h2 className="text-2xl font-bold text-gray-700">👨‍🏫 Profesores</h2>
-        <div className="flex gap-2">
-          <button
-            onClick={handleOpenCreate}
-            className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition font-medium shadow-sm"
-          >
-            ➕ Nuevo Profesor
-          </button>
-          <button
-            onClick={() => setViewMode("table")}
-            className={`px-3 py-2 rounded-lg font-medium text-sm ${
-              viewMode === "table"
-                ? "bg-purple-100 text-purple-700"
-                : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-            }`}
-          >
-            Tabla
-          </button>
-          <button
-            onClick={() => setViewMode("cards")}
-            className={`px-3 py-2 rounded-lg font-medium text-sm ${
-              viewMode === "cards"
-                ? "bg-purple-100 text-purple-700"
-                : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-            }`}
-          >
-            Tarjetas
-          </button>
-        </div>
-      </div>
-      {loading ? (
-        <div className="text-center py-8 text-gray-500">Cargando profesores...</div>
-      ) : error ? (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-          <p className="text-red-600">❌ {error}</p>
-        </div>
-      ) : teachers.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">No hay profesores registrados.</div>
-      ) : viewMode === "table" ? (
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-purple-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">ID</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Nombre</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Email</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Especialidad</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Estado</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Dirección</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Comuna</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Ciudad</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">N° Empleado</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Nivel Educacional</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Fecha Contrato</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Tipo Contrato</th>
-                <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {teachers.map((t) => (
-                <tr key={t.id}>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.id}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{getNombreCompleto(t)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.email ?? "-"}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.specialization ?? "-"}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.teacherStatus ?? "-"}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.address ?? "-"}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.commune ?? "-"}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.city ?? "-"}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.employeeNumber ?? "-"}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.educationLevel ?? "-"}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.hireDate ? new Date(t.hireDate).toLocaleDateString() : "-"}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{t.contractType ?? "-"}</td>
-                  <td className="px-4 py-3 text-sm text-center flex gap-2 justify-center">
-                    <button
-                      className="px-3 py-1 bg-yellow-400 text-white rounded-lg hover:bg-yellow-500 transition font-medium text-xs"
-                      onClick={() => handleOpenEdit(t)}
-                    >
-                      Editar
-                    </button>
-                    <button
-                      className="px-3 py-1 bg-red-400 text-white rounded-lg hover:bg-red-500 transition font-medium text-xs"
-                      onClick={() => handleDelete(t.id)}
-                    >
-                      Eliminar
-                    </button>
-                  </td>
+    <>
+      <ModuleLayout
+        theme={theme}
+        onBack={onBack ?? (() => {})}
+        createLabel="Nuevo Profesor"
+        onCreate={handleOpenCreate}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Buscar por nombre, RUT o especialidad..."
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        onRefresh={loadTeachers}
+        loading={loading}
+        error={error}
+      >
+        {teachers.length === 0 && (
+          <div className="text-center py-8 text-gray-500">No hay profesores registrados.</div>
+        )}
+
+        {teachers.length > 0 && filteredTeachers.length === 0 && (
+          <div className="text-center py-8 text-gray-500">No se encontraron profesores con ese criterio.</div>
+        )}
+
+        {filteredTeachers.length > 0 && viewMode === "table" && (
+          <div className={theme.tableWrap}>
+            <table className="w-full text-sm">
+              <thead className={theme.tableHead}>
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold">ID</th>
+                  <th className="px-4 py-3 text-left font-semibold">Nombre</th>
+                  <th className="px-4 py-3 text-left font-semibold">Email</th>
+                  <th className="px-4 py-3 text-left font-semibold">Especialidad</th>
+                  <th className="px-4 py-3 text-left font-semibold">Estado</th>
+                  <th className="px-4 py-3 text-left font-semibold">Dirección</th>
+                  <th className="px-4 py-3 text-left font-semibold">Comuna</th>
+                  <th className="px-4 py-3 text-left font-semibold">Ciudad</th>
+                  <th className="px-4 py-3 text-left font-semibold">N° Empleado</th>
+                  <th className="px-4 py-3 text-left font-semibold">Nivel Educacional</th>
+                  <th className="px-4 py-3 text-left font-semibold">Fecha Contrato</th>
+                  <th className="px-4 py-3 text-left font-semibold">Tipo Contrato</th>
+                  <th className="px-4 py-3 text-center font-semibold">Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        // Vista tipo tarjetas
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-          {teachers.map((t) => (
-            <div
-              key={t.id}
-              className="bg-purple-50 rounded-xl shadow p-6 flex flex-col gap-2 border border-purple-100"
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-3xl">👨‍🏫</span>
-                <span className="font-bold text-lg text-gray-700">{getNombreCompleto(t)}</span>
+              </thead>
+              <tbody>
+                {filteredTeachers.map((t) => (
+                  <tr key={t.id} className={`border-t border-slate-100 ${theme.tableRowHover}`}>
+                    <td className="px-4 py-3 text-gray-700">{t.id}</td>
+                    <td className="px-4 py-3 text-gray-700">{getNombreCompleto(t)}</td>
+                    <td className="px-4 py-3 text-gray-700">{t.email ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">{t.specialization ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">{t.teacherStatus ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">{t.address ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">{t.commune ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">{t.city ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">{t.employeeNumber ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">{t.educationLevel ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">
+                      {t.hireDate ? new Date(t.hireDate).toLocaleDateString() : "-"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">{t.contractType ?? "-"}</td>
+                    <td className="px-4 py-3">
+                      <RecordActions
+                        onView={() => setViewingTeacher(t)}
+                        onEdit={() => handleOpenEdit(t)}
+                        onDelete={() => handleDelete(t.id)}
+                        compact
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {filteredTeachers.length > 0 && viewMode === "cards" && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+            {filteredTeachers.map((t) => (
+              <div key={t.id} className={theme.cardClass}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-3xl">👨‍🏫</span>
+                  <span className="font-bold text-lg text-gray-700">{getNombreCompleto(t)}</span>
+                </div>
+                <div className="text-sm text-gray-600">
+                  <span className="font-semibold">RUT:</span> {t.rut ?? "-"}
+                </div>
+                <div className="text-sm text-gray-600">
+                  <span className="font-semibold">Email:</span> {t.email ?? "-"}
+                </div>
+                <div className="text-sm text-gray-600">
+                  <span className="font-semibold">Especialidad:</span> {t.specialization ?? "-"}
+                </div>
+                <div className="text-sm text-gray-600">
+                  <span className="font-semibold">Estado:</span> {t.teacherStatus ?? "-"}
+                </div>
+                <div className="mt-3">
+                  <RecordActions
+                    onView={() => setViewingTeacher(t)}
+                    onEdit={() => handleOpenEdit(t)}
+                    onDelete={() => handleDelete(t.id)}
+                    compact
+                    stretch
+                  />
+                </div>
               </div>
-              <div className="text-sm text-gray-600">
-                <span className="font-semibold">RUT:</span> {t.rut ?? "-"}
-              </div>
-              <div className="text-sm text-gray-600">
-                <span className="font-semibold">Email:</span> {t.email ?? "-"}
-              </div>
-              <div className="text-sm text-gray-600">
-                <span className="font-semibold">Especialidad:</span> {t.specialization ?? "-"}
-              </div>
-              <div className="text-sm text-gray-600">
-                <span className="font-semibold">Estado:</span> {t.teacherStatus ?? "-"}
-              </div>
-              <div className="flex gap-2 mt-3">
-                <button
-                  className="flex-1 px-3 py-1 bg-yellow-400 text-white rounded-lg hover:bg-yellow-500 transition font-medium text-xs"
-                  onClick={() => handleOpenEdit(t)}
-                >
-                  Editar
-                </button>
-                <button
-                  className="flex-1 px-3 py-1 bg-red-400 text-white rounded-lg hover:bg-red-500 transition font-medium text-xs"
-                  onClick={() => handleDelete(t.id)}
-                >
-                  Eliminar
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
+      </ModuleLayout>
+
+      {viewingTeacher && (
+        <ViewDetailModal
+          title="Detalle del profesor"
+          subtitle={getTeacherFullName(viewingTeacher)}
+          fields={getTeacherDetailFields(viewingTeacher)}
+          onClose={() => setViewingTeacher(null)}
+          theme={theme}
+        />
       )}
 
-      {/* Modal para crear/editar profesor */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-2 z-50 min-h-screen">
-          <div
-            className="bg-white rounded-xl shadow-xl w-full max-w-md p-4 sm:p-6"
-            style={{
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              boxSizing: 'border-box',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'flex-start',
-            }}
-          >
-            <h3 className="text-xl font-bold text-gray-700 mb-4">
-              {editId ? "Editar Profesor" : "Nuevo Profesor"}
-            </h3>
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-                <p className="text-red-600 text-sm">❌ {error}</p>
-              </div>
-            )}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">RUT *</label>
-                <input
-                  type="text"
-                  name="rut"
-                  value={formData.rut}
-                  onChange={e => setFormData(f => ({ ...f, rut: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                  required
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Nombre *</label>
-                <input
-                  type="text"
-                  name="firstName"
-                  value={formData.firstName}
-                  onChange={e => setFormData(f => ({ ...f, firstName: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                  required
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Apellido Paterno *</label>
-                <input
-                  type="text"
-                  name="lastName"
-                  value={formData.lastName}
-                  onChange={e => setFormData(f => ({ ...f, lastName: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                  required
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Apellido Materno</label>
-                <input
-                  type="text"
-                  name="secondLastName"
-                  value={formData.secondLastName}
-                  onChange={e => setFormData(f => ({ ...f, secondLastName: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Email</label>
-                <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={e => setFormData(f => ({ ...f, email: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Teléfono</label>
-                <input
-                  type="text"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={e => setFormData(f => ({ ...f, phone: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Especialidad</label>
-                <input
-                  type="text"
-                  name="specialization"
-                  value={formData.specialization}
-                  onChange={e => setFormData(f => ({ ...f, specialization: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Estado</label>
-                <input
-                  type="text"
-                  name="teacherStatus"
-                  value={formData.teacherStatus}
-                  onChange={e => setFormData(f => ({ ...f, teacherStatus: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              {/* Nuevos campos opcionales del DTO */}
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Dirección</label>
-                <input
-                  type="text"
-                  name="address"
-                  value={formData.address}
-                  onChange={e => setFormData(f => ({ ...f, address: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Comuna</label>
-                <input
-                  type="text"
-                  name="commune"
-                  value={formData.commune}
-                  onChange={e => setFormData(f => ({ ...f, commune: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Ciudad</label>
-                <input
-                  type="text"
-                  name="city"
-                  value={formData.city}
-                  onChange={e => setFormData(f => ({ ...f, city: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">N° Empleado</label>
-                <input
-                  type="text"
-                  name="employeeNumber"
-                  value={formData.employeeNumber}
-                  onChange={e => setFormData(f => ({ ...f, employeeNumber: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Nivel Educacional</label>
-                <input
-                  type="text"
-                  name="educationLevel"
-                  value={formData.educationLevel}
-                  onChange={e => setFormData(f => ({ ...f, educationLevel: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 font-medium mb-2">Fecha Contrato</label>
-                <input
-                  type="date"
-                  name="hireDate"
-                  value={formData.hireDate ?? ""}
-                  onChange={e => setFormData(f => ({ ...f, hireDate: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              <div className="mb-6">
-                <label className="block text-gray-700 font-medium mb-2">Tipo Contrato</label>
-                <input
-                  type="text"
-                  name="contractType"
-                  value={formData.contractType}
-                  onChange={e => setFormData(f => ({ ...f, contractType: e.target.value }))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-transparent"
-                />
-              </div>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowModal(false);
-                    setEditId(null);
-                    setFormData(initialFormData);
-                  }}
-                  disabled={submitting}
-                  className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition font-medium disabled:opacity-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="flex-1 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition font-medium disabled:opacity-50"
-                >
-                  {submitting ? "Guardando..." : editId ? "Actualizar" : "Crear"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <FormModal
+          title={editId ? "Editar Profesor" : "Nuevo Profesor"}
+          subtitle={editId ? "Modifica los datos del docente" : "Registra un nuevo profesor"}
+          theme={theme}
+          onClose={closeTeacherModal}
+          onSubmit={handleSubmit}
+          error={error}
+          submitting={submitting}
+          submitLabel={editId ? "Guardar cambios" : "Crear profesor"}
+          size="xl"
+        >
+          <FormField label="RUT" required>
+            <input type="text" name="rut" value={formData.rut} onChange={(e) => setFormData((f) => ({ ...f, rut: e.target.value }))} className={inputClass} required />
+          </FormField>
+          <FormField label="Nombre" required>
+            <input type="text" name="firstName" value={formData.firstName} onChange={(e) => setFormData((f) => ({ ...f, firstName: e.target.value }))} className={inputClass} required />
+          </FormField>
+          <FormField label="Apellido paterno" required>
+            <input type="text" name="lastName" value={formData.lastName} onChange={(e) => setFormData((f) => ({ ...f, lastName: e.target.value }))} className={inputClass} required />
+          </FormField>
+          <FormField label="Apellido materno">
+            <input type="text" name="secondLastName" value={formData.secondLastName} onChange={(e) => setFormData((f) => ({ ...f, secondLastName: e.target.value }))} className={inputClass} />
+          </FormField>
+          <FormField label="Email" required>
+            <input type="email" name="email" value={formData.email} onChange={(e) => setFormData((f) => ({ ...f, email: e.target.value }))} className={inputClass} required />
+          </FormField>
+          <FormField label="Teléfono">
+            <input type="text" name="phone" value={formData.phone} onChange={(e) => setFormData((f) => ({ ...f, phone: e.target.value }))} className={inputClass} />
+          </FormField>
+          <FormField label="Especialidad">
+            <input type="text" name="specialization" value={formData.specialization} onChange={(e) => setFormData((f) => ({ ...f, specialization: e.target.value }))} className={inputClass} />
+          </FormField>
+          <FormField label="Estado">
+            <select name="teacherStatus" value={formData.teacherStatus} onChange={(e) => setFormData((f) => ({ ...f, teacherStatus: e.target.value }))} className={`${inputClass} bg-white`}>
+              <option value="ACTIVO">ACTIVO</option>
+              <option value="INACTIVO">INACTIVO</option>
+              <option value="LICENCIA">LICENCIA</option>
+            </select>
+          </FormField>
+          <FormField label="Dirección" fullWidth>
+            <input type="text" name="address" value={formData.address} onChange={(e) => setFormData((f) => ({ ...f, address: e.target.value }))} className={inputClass} />
+          </FormField>
+          <FormField label="Comuna">
+            <input type="text" name="commune" value={formData.commune} onChange={(e) => setFormData((f) => ({ ...f, commune: e.target.value }))} className={inputClass} />
+          </FormField>
+          <FormField label="Ciudad">
+            <input type="text" name="city" value={formData.city} onChange={(e) => setFormData((f) => ({ ...f, city: e.target.value }))} className={inputClass} />
+          </FormField>
+          <FormField label="N° empleado">
+            <input type="text" name="employeeNumber" value={formData.employeeNumber} onChange={(e) => setFormData((f) => ({ ...f, employeeNumber: e.target.value }))} className={inputClass} />
+          </FormField>
+          <FormField label="Nivel educacional">
+            <input type="text" name="educationLevel" value={formData.educationLevel} onChange={(e) => setFormData((f) => ({ ...f, educationLevel: e.target.value }))} className={inputClass} />
+          </FormField>
+          <FormField label="Fecha contrato">
+            <input type="date" name="hireDate" value={formData.hireDate ?? ""} onChange={(e) => setFormData((f) => ({ ...f, hireDate: e.target.value }))} className={inputClass} />
+          </FormField>
+          <FormField label="Tipo contrato">
+            <input type="text" name="contractType" value={formData.contractType} onChange={(e) => setFormData((f) => ({ ...f, contractType: e.target.value }))} className={inputClass} />
+          </FormField>
+        </FormModal>
       )}
-    </div>
+    </>
   );
 }
 
