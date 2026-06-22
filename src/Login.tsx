@@ -1,20 +1,17 @@
 import { useState, useEffect } from "react";
 import { login } from "./api/auth";
+import { applyLoginSession, useAuth } from "./auth/AuthContext";
 
-interface LoginProps {
-  onLogin: () => void;
-}
-
-function Login({ onLogin }: LoginProps) {
+function Login() {
+  const auth = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Limpiar token al montar el componente de login
   useEffect(() => {
-    localStorage.removeItem("token");
-  }, []);
+    auth.clearSession();
+  }, [auth.clearSession]);
 
   const handleLogin = async () => {
     if (!username || !password) {
@@ -25,8 +22,8 @@ function Login({ onLogin }: LoginProps) {
     try {
       setLoading(true);
       setError(null);
-      await login(username, password);
-      onLogin();
+      const data = await login(username, password);
+      applyLoginSession(data, auth.setSession);
     } catch (error) {
       console.error("Error en login:", error);
       const errorMessage = error instanceof Error ? error.message : "Error al iniciar sesión";
@@ -96,8 +93,11 @@ function Login({ onLogin }: LoginProps) {
           </button>
         </div>
 
-        <div className="mt-6 text-center text-sm text-gray-500">
+        <div className="mt-6 text-center text-sm text-gray-500 space-y-1">
           <p>Sistema de Gestión Académica</p>
+          <p className="text-xs text-gray-400">
+            Demo: admin_colegio / prof_castillo — contraseña test1234
+          </p>
         </div>
       </div>
     </div>
@@ -105,6 +105,3 @@ function Login({ onLogin }: LoginProps) {
 }
 
 export default Login;
-
-
-

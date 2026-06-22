@@ -4,6 +4,7 @@ export interface Enrollment {
   id: number;
   studentId: number;
   courseId: number;
+  enrollmentNumber?: string;
   academicYear?: number;
   enrollmentDate?: string;
   enrollmentStatus?: string;
@@ -92,6 +93,18 @@ export const updateEnrollment = async (id: number, enrollmentData: CreateEnrollm
     }
     throw error;
   }
+};
+
+export const getEnrollmentsByStudent = async (studentId: number): Promise<Enrollment[]> => {
+  const response = await fetch(`${API_URL}/student/${studentId}`, {
+    method: "GET",
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || `Error ${response.status}`);
+  }
+  return response.json();
 };
 
 export const deleteEnrollment = async (id: number): Promise<void> => {

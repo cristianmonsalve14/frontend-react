@@ -4,6 +4,8 @@ interface RecordActionsProps {
   onView?: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  canEdit?: boolean;
+  canDelete?: boolean;
   compact?: boolean;
   stretch?: boolean;
 }
@@ -52,6 +54,8 @@ function RecordActions({
   onView,
   onEdit,
   onDelete,
+  canEdit = true,
+  canDelete = true,
   compact = false,
   stretch = false,
 }: RecordActionsProps) {
@@ -96,8 +100,10 @@ function RecordActions({
     <div className={containerClass}>
       {onView &&
         renderButton("view", "Ver", onView, <IconEye className={iconSize} />)}
-      {renderButton("edit", "Editar", onEdit, <IconPencil className={iconSize} />)}
-      {renderButton("delete", "Eliminar", onDelete, <IconTrash className={iconSize} />)}
+      {canEdit &&
+        renderButton("edit", "Editar", onEdit, <IconPencil className={iconSize} />)}
+      {canDelete &&
+        renderButton("delete", "Eliminar", onDelete, <IconTrash className={iconSize} />)}
     </div>
   );
 }

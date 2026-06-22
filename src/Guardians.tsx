@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   getGuardians,
   createGuardian,
@@ -6,11 +6,27 @@ import {
   deleteGuardian,
 } from "./api/guardians";
 import type { Guardian, CreateGuardianDto } from "./api/guardians";
+import { getStudents } from "./api/students";
+import type { Student } from "./api/students";
 import ViewDetailModal, { type DetailField } from "./components/ViewDetailModal";
 import { moduleThemes } from "./theme/moduleThemes";
 import ModuleLayout from "./components/ModuleLayout";
 import RecordActions from "./components/RecordActions";
 import FormModal, { FormField, formInputClass } from "./components/FormModal";
+import PortalAccessSection from "./components/PortalAccessSection";
+import { initialPortalAccessState, provisionPortalAccess } from "./utils/provisionPortalAccess";
+import { useAuth } from "./auth/AuthContext";
+import { formatStudentFullName } from "./utils/formatStudentFullName";
+import { sortById } from "./utils/sortById";
+import {
+  formatRutDisplay,
+  isValidRut,
+  normalizeRut,
+  RUT_TABLE_CELL_CLASS,
+  validateRutField,
+} from "./utils/formatRut";
+import { validateEmailField } from "./utils/validateEmail";
+import { validatePhoneField } from "./utils/validatePhone";
 
 interface FormData {
   rut: string;
@@ -54,7 +70,9 @@ interface GuardiansProps {
 
 function Guardians({ onBack }: GuardiansProps) {
   const theme = moduleThemes.guardians;
+  const auth = useAuth();
   const [guardians, setGuardians] = useState<Guardian[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -64,12 +82,36 @@ function Guardians({ onBack }: GuardiansProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [viewingGuardian, setViewingGuardian] = useState<Guardian | null>(null);
+  const [portalAccess, setPortalAccess] = useState(initialPortalAccessState);
 
   const getGuardianFullName = (g: Guardian) =>
     [g.firstName, g.lastName, g.secondLastName].filter(Boolean).join(" ");
 
+  const studentsByGuardianId = useMemo(() => {
+    const map = new Map<number, Student[]>();
+    for (const student of students) {
+      if (!student.guardianId) continue;
+      const list = map.get(student.guardianId) ?? [];
+      list.push(student);
+      map.set(student.guardianId, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) =>
+        formatStudentFullName(a).localeCompare(formatStudentFullName(b), "es"),
+      );
+    }
+    return map;
+  }, [students]);
+
+  const getGuardianStudentsLabel = (guardianId: number) => {
+    const linkedStudents = studentsByGuardianId.get(guardianId) ?? [];
+    if (linkedStudents.length === 0) return "Sin estudiante asignado";
+    return linkedStudents.map((student) => formatStudentFullName(student)).join(", ");
+  };
+
   const getGuardianDetailFields = (g: Guardian): DetailField[] => [
-    { label: "RUT", value: g.rut },
+    { label: "Estudiante(s)", value: getGuardianStudentsLabel(g.id), fullWidth: true },
+    { label: "RUT", value: formatRutDisplay(g.rut) || g.rut },
     { label: "Nombre", value: g.firstName },
     { label: "Apellido paterno", value: g.lastName },
     { label: "Apellido materno", value: g.secondLastName },
@@ -90,7 +132,9 @@ function Guardians({ onBack }: GuardiansProps) {
     try {
       setLoading(true);
       setError(null);
-      setGuardians(await getGuardians());
+      const [guardiansData, studentsData] = await Promise.all([getGuardians(), getStudents()]);
+      setGuardians(sortById(guardiansData));
+      setStudents(sortById(studentsData));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar apoderados");
     } finally {
@@ -102,20 +146,25 @@ function Guardians({ onBack }: GuardiansProps) {
     void loadGuardians();
   }, []);
 
-  const filtered = guardians.filter((g) => {
+  const filtered = useMemo(() => {
     const q = searchTerm.toLowerCase();
-    return (
-      g.rut.toLowerCase().includes(q) ||
-      g.firstName.toLowerCase().includes(q) ||
-      g.lastName.toLowerCase().includes(q) ||
-      g.email.toLowerCase().includes(q)
-    );
-  });
+    return guardians.filter((g) => {
+      const studentNames = getGuardianStudentsLabel(g.id).toLowerCase();
+      return (
+        g.rut.toLowerCase().includes(q) ||
+        g.firstName.toLowerCase().includes(q) ||
+        g.lastName.toLowerCase().includes(q) ||
+        g.email.toLowerCase().includes(q) ||
+        studentNames.includes(q)
+      );
+    });
+  }, [guardians, searchTerm, studentsByGuardianId]);
 
   const openCreate = () => {
     setEditing(null);
     setFormData(initialForm);
     setFormError(null);
+    setPortalAccess(initialPortalAccessState);
     setShowModal(true);
   };
 
@@ -139,6 +188,7 @@ function Guardians({ onBack }: GuardiansProps) {
       isPrimary: g.isPrimary ?? true,
     });
     setFormError(null);
+    setPortalAccess(initialPortalAccessState);
     setShowModal(true);
   };
 
@@ -154,13 +204,38 @@ function Guardians({ onBack }: GuardiansProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.rut.trim() || !formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || !formData.phone.trim()) {
-      setFormError("RUT, nombre, apellido, email y teléfono son obligatorios");
+    if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.phone.trim()) {
+      setFormError("Nombre, apellido y teléfono son obligatorios");
       return;
     }
+
+    const rutError = validateRutField(formData.rut);
+    if (rutError) {
+      setFormError(rutError);
+      return;
+    }
+
+    const emailError = validateEmailField(formData.email);
+    if (emailError) {
+      setFormError(emailError);
+      return;
+    }
+
+    const phoneError = validatePhoneField(formData.phone, true);
+    if (phoneError) {
+      setFormError(phoneError);
+      return;
+    }
+
+    const emergencyPhoneError = validatePhoneField(formData.emergencyPhone ?? "", false);
+    if (emergencyPhoneError) {
+      setFormError(emergencyPhoneError);
+      return;
+    }
+
     setFormError(null);
     const payload: CreateGuardianDto = {
-      rut: formData.rut.trim(),
+      rut: normalizeRut(formData.rut),
       firstName: formData.firstName.trim(),
       lastName: formData.lastName.trim(),
       secondLastName: formData.secondLastName?.trim() || undefined,
@@ -177,6 +252,21 @@ function Guardians({ onBack }: GuardiansProps) {
       isPrimary: formData.isPrimary,
     };
     try {
+      let userId = editing?.userId;
+      if (auth.isAdmin) {
+        userId = await provisionPortalAccess({
+          enabled: portalAccess.enabled,
+          username: portalAccess.username,
+          password: portalAccess.password,
+          passwordConfirm: portalAccess.passwordConfirm,
+          email: formData.email.trim(),
+          role: "APODERADO",
+          existingUserId: editing?.userId,
+        }) ?? userId;
+      }
+      if (userId) {
+        payload.userId = userId;
+      }
       if (editing) {
         await updateGuardian(editing.id, payload);
       } else {
@@ -208,9 +298,10 @@ function Guardians({ onBack }: GuardiansProps) {
         onBack={onBack}
         createLabel="Nuevo Apoderado"
         onCreate={openCreate}
+        canCreate={auth.canCreate("guardians")}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
-        searchPlaceholder="Buscar por RUT, nombre o email..."
+        searchPlaceholder="Buscar por RUT, nombre, email o estudiante..."
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         onRefresh={loadGuardians}
@@ -242,7 +333,12 @@ function Guardians({ onBack }: GuardiansProps) {
             {filtered.map((g) => (
               <div key={g.id} className={theme.cardClass}>
                 <h3 className="font-bold">{g.firstName} {g.lastName}</h3>
-                <p className="text-sm">RUT: {g.rut}</p>
+                <p className="text-sm font-medium text-teal-800">
+                  Estudiante: {getGuardianStudentsLabel(g.id)}
+                </p>
+                <p className={`text-sm ${RUT_TABLE_CELL_CLASS}`}>
+                  RUT: {formatRutDisplay(g.rut) || "—"}
+                </p>
                 <p className="text-sm">Relación: {g.relationship}</p>
                 <p className="text-sm">Email: {g.email}</p>
                 <p className="text-sm">Tel: {g.phone}</p>
@@ -252,6 +348,8 @@ function Guardians({ onBack }: GuardiansProps) {
                     onView={() => setViewingGuardian(g)}
                     onEdit={() => openEdit(g)}
                     onDelete={() => handleDelete(g)}
+                    canEdit={auth.canEdit("guardians")}
+                    canDelete={auth.canDelete("guardians")}
                     compact
                     stretch
                   />
@@ -266,7 +364,8 @@ function Guardians({ onBack }: GuardiansProps) {
             <table className="w-full text-sm">
               <thead className={theme.tableHead}>
                 <tr>
-                  <th className="px-4 py-3 text-left font-semibold">RUT</th>
+                  <th className="px-4 py-3 text-left font-semibold">Estudiante(s)</th>
+                  <th className={`px-4 py-3 text-left font-semibold ${RUT_TABLE_CELL_CLASS}`}>RUT</th>
                   <th className="px-4 py-3 text-left font-semibold">Nombre</th>
                   <th className="px-4 py-3 text-left font-semibold">Apellido paterno</th>
                   <th className="px-4 py-3 text-left font-semibold">Apellido materno</th>
@@ -283,7 +382,15 @@ function Guardians({ onBack }: GuardiansProps) {
               <tbody>
                 {filtered.map((g) => (
                   <tr key={g.id} className={`border-t border-slate-100 ${theme.tableRowHover}`}>
-                    <td className="px-4 py-3 text-gray-700">{g.rut}</td>
+                    <td
+                      className="max-w-[220px] truncate px-4 py-3 font-medium text-teal-800"
+                      title={getGuardianStudentsLabel(g.id)}
+                    >
+                      {getGuardianStudentsLabel(g.id)}
+                    </td>
+                    <td className={`px-4 py-3 text-gray-700 ${RUT_TABLE_CELL_CLASS}`}>
+                      {formatRutDisplay(g.rut) || "—"}
+                    </td>
                     <td className="px-4 py-3 text-gray-700">{g.firstName}</td>
                     <td className="px-4 py-3 text-gray-600">{g.lastName}</td>
                     <td className="px-4 py-3 text-gray-600">{g.secondLastName || "—"}</td>
@@ -299,6 +406,8 @@ function Guardians({ onBack }: GuardiansProps) {
                         onView={() => setViewingGuardian(g)}
                         onEdit={() => openEdit(g)}
                         onDelete={() => handleDelete(g)}
+                    canEdit={auth.canEdit("guardians")}
+                    canDelete={auth.canDelete("guardians")}
                         compact
                       />
                     </td>
@@ -331,7 +440,19 @@ function Guardians({ onBack }: GuardiansProps) {
           submitLabel={editing ? "Guardar cambios" : "Crear apoderado"}
         >
           <FormField label="RUT" required>
-            <input name="rut" value={formData.rut} onChange={handleChange} required className={inputClass} />
+            <input
+              name="rut"
+              value={formData.rut}
+              onChange={handleChange}
+              onBlur={() => {
+                if (formData.rut.trim() && isValidRut(formData.rut)) {
+                  setFormData((prev) => ({ ...prev, rut: normalizeRut(prev.rut) }));
+                }
+              }}
+              placeholder="11.111.111-1"
+              required
+              className={inputClass}
+            />
           </FormField>
           <FormField label="Nombre" required>
             <input name="firstName" value={formData.firstName} onChange={handleChange} required className={inputClass} />
@@ -345,6 +466,18 @@ function Guardians({ onBack }: GuardiansProps) {
           <FormField label="Email" required>
             <input name="email" type="email" value={formData.email} onChange={handleChange} required className={inputClass} />
           </FormField>
+          {auth.isAdmin && (
+            <PortalAccessSection
+              theme={theme}
+              role="APODERADO"
+              roleLabel="Apoderado"
+              email={formData.email}
+              rut={formData.rut}
+              existingUserId={editing?.userId}
+              value={portalAccess}
+              onChange={setPortalAccess}
+            />
+          )}
           <FormField label="Teléfono" required>
             <input name="phone" value={formData.phone} onChange={handleChange} required className={inputClass} />
           </FormField>

@@ -11,6 +11,10 @@ export interface Grade {
   teacherComments?: string;
   isAbsent?: boolean;
   gradedByTeacherId?: number;
+  studentName?: string;
+  evaluationName?: string;
+  subjectName?: string;
+  gradedByTeacherName?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -63,6 +67,17 @@ export const updateGrade = async (id: number, data: CreateGradeDto): Promise<Gra
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.message || `Error ${response.status}`);
+  }
+  return response.json();
+};
+
+export const getGradesByStudent = async (studentId: number): Promise<Grade[]> => {
+  const response = await fetch(`${API_URL}/student/${studentId}`, {
+    method: "GET",
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Error ${response.status}: ${response.statusText}`);
   }
   return response.json();
 };

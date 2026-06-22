@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect, useMemo } from "react";
 import { getSubjects, createSubject, updateSubject, deleteSubject } from "./api/subjects";
 import type { Subject } from "./api/subjects";
 import { getCourses } from "./api/courses";
@@ -11,8 +11,18 @@ import { moduleThemes } from "./theme/moduleThemes";
 import ModuleLayout from "./components/ModuleLayout";
 import RecordActions from "./components/RecordActions";
 import FormModal, { FormField, formInputClass } from "./components/FormModal";
+import { useAuth } from "./auth/AuthContext";
+import { sortById } from "./utils/sortById";
+import { validatePositiveIntField } from "./utils/validateDate";
 
 const MAX_WEEKLY_ACADEMIC_HOURS = 12;
+const NO_COURSE_KEY = "none";
+
+interface SubjectGroup {
+  key: string;
+  label: string;
+  subjects: Subject[];
+}
 
 const formatAcademicHours = (hours?: number) => {
   if (hours === undefined || hours === null || hours < 1 || hours > MAX_WEEKLY_ACADEMIC_HOURS) return "—";
@@ -38,6 +48,7 @@ interface SubjectsProps {
 
 function Subjects({ onBack }: SubjectsProps) {
   const theme = moduleThemes.subjects;
+  const auth = useAuth();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,6 +69,7 @@ function Subjects({ onBack }: SubjectsProps) {
   const [submitting, setSubmitting] = useState(false);
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [searchTerm, setSearchTerm] = useState("");
+  const [courseFilter, setCourseFilter] = useState("");
   const [viewingSubject, setViewingSubject] = useState<Subject | null>(null);
 
   const loadSubjects = async () => {
@@ -69,9 +81,9 @@ function Subjects({ onBack }: SubjectsProps) {
         getCourses(),
         getTeachers()
       ]);
-      setSubjects(subjectsData);
-      setCourses(coursesData);
-      setTeachers(teachersData);
+      setSubjects(sortById(subjectsData));
+      setCourses(sortById(coursesData));
+      setTeachers(sortById(teachersData));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar asignaturas");
       console.error("Error cargando asignaturas:", err);
@@ -111,14 +123,77 @@ function Subjects({ onBack }: SubjectsProps) {
     { label: "Profesor", value: getTeacherName(subject.teacherId) },
   ];
 
-  const filteredSubjects = subjects.filter((subject) => {
+  const filteredSubjects = useMemo(() => subjects.filter((subject) => {
+    if (courseFilter === NO_COURSE_KEY) {
+      if (subject.courseId != null) return false;
+    } else if (courseFilter) {
+      if (String(subject.courseId) !== courseFilter) return false;
+    }
+
     const searchLower = searchTerm.toLowerCase();
     return (
       (subject.subjectCode ?? "").toLowerCase().includes(searchLower) ||
       (subject.subjectName ?? "").toLowerCase().includes(searchLower) ||
       (getCourseDisplay(subject.courseId) ?? "").toLowerCase().includes(searchLower)
     );
-  });
+  }), [subjects, courseFilter, searchTerm, courses]);
+
+  const subjectGroups = useMemo((): SubjectGroup[] => {
+    if (courseFilter) {
+      const label = courseFilter === NO_COURSE_KEY
+        ? "Sin curso asignado"
+        : getCourseDisplay(Number(courseFilter));
+      return filteredSubjects.length
+        ? [{ key: courseFilter, label, subjects: filteredSubjects }]
+        : [];
+    }
+
+    const byKey = new Map<string, Subject[]>();
+    for (const subject of filteredSubjects) {
+      const key = subject.courseId != null ? String(subject.courseId) : NO_COURSE_KEY;
+      const list = byKey.get(key) ?? [];
+      list.push(subject);
+      byKey.set(key, list);
+    }
+
+    const groups: SubjectGroup[] = [];
+    const seen = new Set<string>();
+
+    for (const course of courses) {
+      const key = String(course.id);
+      const groupSubjects = byKey.get(key);
+      if (groupSubjects?.length) {
+        groups.push({
+          key,
+          label: formatCourseLabel(course),
+          subjects: sortById(groupSubjects),
+        });
+        seen.add(key);
+      }
+    }
+
+    for (const [key, groupSubjects] of byKey) {
+      if (seen.has(key) || key === NO_COURSE_KEY) continue;
+      groups.push({
+        key,
+        label: getCourseDisplay(Number(key)),
+        subjects: sortById(groupSubjects),
+      });
+    }
+
+    const unassigned = byKey.get(NO_COURSE_KEY);
+    if (unassigned?.length) {
+      groups.push({
+        key: NO_COURSE_KEY,
+        label: "Sin curso asignado",
+        subjects: sortById(unassigned),
+      });
+    }
+
+    return groups;
+  }, [filteredSubjects, courseFilter, courses]);
+
+  const showGroupHeaders = !courseFilter;
 
   const openCreateModal = () => {
     setEditingSubject(null);
@@ -200,6 +275,22 @@ function Subjects({ onBack }: SubjectsProps) {
       setFormError("El código y nombre de la asignatura son obligatorios");
       return;
     }
+    if (!formData.courseId) {
+      setFormError("Debes seleccionar un curso para la asignatura");
+      return;
+    }
+    if (formData.weeklyHours?.trim()) {
+      const hoursError = validatePositiveIntField(
+        formData.weeklyHours,
+        "Las horas semanales",
+        1,
+        MAX_WEEKLY_ACADEMIC_HOURS
+      );
+      if (hoursError) {
+        setFormError(hoursError);
+        return;
+      }
+    }
     setSubmitting(true);
     setFormError(null);
     try {
@@ -255,6 +346,7 @@ function Subjects({ onBack }: SubjectsProps) {
         onBack={onBack}
         createLabel="Nueva Asignatura"
         onCreate={openCreateModal}
+        canCreate={auth.canCreate("subjects")}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Buscar por nombre, código o curso..."
@@ -263,6 +355,22 @@ function Subjects({ onBack }: SubjectsProps) {
         onRefresh={loadSubjects}
         loading={loading}
         error={error}
+        toolbarExtra={
+          <select
+            value={courseFilter}
+            onChange={(e) => setCourseFilter(e.target.value)}
+            className={`min-w-[200px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:ring-2 ${theme.focusRing}`}
+            aria-label="Filtrar por curso"
+          >
+            <option value="">Todos los cursos</option>
+            {courses.map((course) => (
+              <option key={course.id} value={String(course.id)}>
+                {formatCourseLabel(course)}
+              </option>
+            ))}
+            <option value={NO_COURSE_KEY}>Sin curso asignado</option>
+          </select>
+        }
       >
         {subjects.length === 0 && (
           <div className="text-center py-12 text-gray-500">
@@ -284,35 +392,53 @@ function Subjects({ onBack }: SubjectsProps) {
           </div>
         )}
 
-        {filteredSubjects.length > 0 && viewMode === "cards" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredSubjects.map((subject) => (
-              <div key={subject.id} className={theme.cardClass}>
-                <div className="text-4xl mb-4">📚</div>
-                <h3 className="text-xl font-semibold text-gray-700 mb-2">
-                  {subject.subjectName} ({subject.subjectCode})
-                </h3>
-                <p className="text-sm text-gray-600 mb-1">Curso: {getCourseDisplay(subject.courseId)}</p>
-                <p className="text-sm text-gray-600 mb-1">Tipo: {subject.subjectType}</p>
-                <p className="text-sm text-gray-600 mb-1">
-                  Horas académicas/semana: {formatAcademicHours(subject.weeklyHours)}
-                </p>
-                <p className="text-sm text-gray-600 mb-1">Profesor: {getTeacherName(subject.teacherId)}</p>
-                <div className="mt-4">
-                  <RecordActions
-                    onView={() => setViewingSubject(subject)}
-                    onEdit={() => openEditModal(subject)}
-                    onDelete={() => handleDelete(subject)}
-                    compact
-                    stretch
-                  />
+        {subjectGroups.length > 0 && viewMode === "cards" && (
+          <div className="space-y-8">
+            {subjectGroups.map((group) => (
+              <section key={group.key}>
+                {showGroupHeaders && (
+                  <div className="mb-4 flex items-center gap-3">
+                    <h3 className="text-lg font-semibold text-slate-800">{group.label}</h3>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                      {group.subjects.length} {group.subjects.length === 1 ? "asignatura" : "asignaturas"}
+                    </span>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  {group.subjects.map((subject) => (
+                    <div key={subject.id} className={theme.cardClass}>
+                      <div className="mb-4 text-4xl">📚</div>
+                      <h3 className="mb-2 text-xl font-semibold text-gray-700">
+                        {subject.subjectName} ({subject.subjectCode})
+                      </h3>
+                      {!showGroupHeaders && (
+                        <p className="mb-1 text-sm text-gray-600">Curso: {getCourseDisplay(subject.courseId)}</p>
+                      )}
+                      <p className="mb-1 text-sm text-gray-600">Tipo: {subject.subjectType}</p>
+                      <p className="mb-1 text-sm text-gray-600">
+                        Horas académicas/semana: {formatAcademicHours(subject.weeklyHours)}
+                      </p>
+                      <p className="mb-1 text-sm text-gray-600">Profesor: {getTeacherName(subject.teacherId)}</p>
+                      <div className="mt-4">
+                        <RecordActions
+                          onView={() => setViewingSubject(subject)}
+                          onEdit={() => openEditModal(subject)}
+                          onDelete={() => handleDelete(subject)}
+                          canEdit={auth.canEdit("subjects")}
+                          canDelete={auth.canDelete("subjects")}
+                          compact
+                          stretch
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
+              </section>
             ))}
           </div>
         )}
 
-        {filteredSubjects.length > 0 && viewMode === "table" && (
+        {subjectGroups.length > 0 && viewMode === "table" && (
           <div className={theme.tableWrap}>
             <table className="w-full text-sm">
               <thead className={theme.tableHead}>
@@ -320,7 +446,9 @@ function Subjects({ onBack }: SubjectsProps) {
                   <th className="px-4 py-3 text-left font-semibold">Código</th>
                   <th className="px-4 py-3 text-left font-semibold">Nombre</th>
                   <th className="px-4 py-3 text-left font-semibold">Descripción</th>
-                  <th className="px-4 py-3 text-left font-semibold">Curso</th>
+                  {showGroupHeaders ? null : (
+                    <th className="px-4 py-3 text-left font-semibold">Curso</th>
+                  )}
                   <th className="px-4 py-3 text-left font-semibold">Tipo</th>
                   <th className="px-4 py-3 text-left font-semibold">H. acad./sem.</th>
                   <th className="px-4 py-3 text-left font-semibold">Profesor</th>
@@ -328,26 +456,50 @@ function Subjects({ onBack }: SubjectsProps) {
                 </tr>
               </thead>
               <tbody>
-                {filteredSubjects.map((subject) => (
-                  <tr key={subject.id} className={`border-t border-slate-100 ${theme.tableRowHover}`}>
-                    <td className="px-4 py-3 text-gray-700">{subject.subjectCode}</td>
-                    <td className="px-4 py-3 text-gray-700">{subject.subjectName}</td>
-                    <td className="px-4 py-3 text-gray-600 max-w-[200px] truncate" title={subject.description ?? undefined}>
-                      {subject.description || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{getCourseDisplay(subject.courseId)}</td>
-                    <td className="px-4 py-3 text-gray-600">{subject.subjectType}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatAcademicHours(subject.weeklyHours)}</td>
-                    <td className="px-4 py-3 text-gray-600">{getTeacherName(subject.teacherId)}</td>
-                    <td className="px-4 py-3">
-                      <RecordActions
-                        onView={() => setViewingSubject(subject)}
-                        onEdit={() => openEditModal(subject)}
-                        onDelete={() => handleDelete(subject)}
-                        compact
-                      />
-                    </td>
-                  </tr>
+                {subjectGroups.map((group) => (
+                  <Fragment key={group.key}>
+                    {showGroupHeaders && (
+                      <tr className="bg-slate-50">
+                        <td
+                          colSpan={7}
+                          className="px-4 py-3 text-sm font-semibold text-slate-700"
+                        >
+                          {group.label}
+                          <span className="ml-2 font-normal text-slate-500">
+                            ({group.subjects.length} {group.subjects.length === 1 ? "asignatura" : "asignaturas"})
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    {group.subjects.map((subject) => (
+                      <tr key={subject.id} className={`border-t border-slate-100 ${theme.tableRowHover}`}>
+                        <td className="px-4 py-3 text-gray-700">{subject.subjectCode}</td>
+                        <td className="px-4 py-3 text-gray-700">{subject.subjectName}</td>
+                        <td
+                          className="max-w-[200px] truncate px-4 py-3 text-gray-600"
+                          title={subject.description ?? undefined}
+                        >
+                          {subject.description || "—"}
+                        </td>
+                        {!showGroupHeaders && (
+                          <td className="px-4 py-3 text-gray-600">{getCourseDisplay(subject.courseId)}</td>
+                        )}
+                        <td className="px-4 py-3 text-gray-600">{subject.subjectType}</td>
+                        <td className="px-4 py-3 text-gray-600">{formatAcademicHours(subject.weeklyHours)}</td>
+                        <td className="px-4 py-3 text-gray-600">{getTeacherName(subject.teacherId)}</td>
+                        <td className="px-4 py-3">
+                          <RecordActions
+                            onView={() => setViewingSubject(subject)}
+                            onEdit={() => openEditModal(subject)}
+                            onDelete={() => handleDelete(subject)}
+                            canEdit={auth.canEdit("subjects")}
+                            canDelete={auth.canDelete("subjects")}
+                            compact
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

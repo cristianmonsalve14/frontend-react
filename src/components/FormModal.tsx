@@ -12,11 +12,12 @@ interface FormFieldProps {
   label: string;
   required?: boolean;
   hint?: string;
+  error?: string | null;
   fullWidth?: boolean;
   children: ReactNode;
 }
 
-export function FormField({ label, required, hint, fullWidth, children }: FormFieldProps) {
+export function FormField({ label, required, hint, error, fullWidth, children }: FormFieldProps) {
   return (
     <div className={fullWidth ? "sm:col-span-2" : ""}>
       <label className={formLabelClass}>
@@ -24,7 +25,8 @@ export function FormField({ label, required, hint, fullWidth, children }: FormFi
         {required ? <span className="text-rose-500"> *</span> : null}
       </label>
       {children}
-      {hint ? <p className="mt-1.5 text-xs leading-relaxed text-slate-400">{hint}</p> : null}
+      {error ? <p className="mt-1.5 text-xs font-medium text-rose-600">{error}</p> : null}
+      {hint && !error ? <p className="mt-1.5 text-xs leading-relaxed text-slate-400">{hint}</p> : null}
     </div>
   );
 }
@@ -40,13 +42,16 @@ interface FormModalProps {
   submitLabel: string;
   cancelLabel?: string;
   children: ReactNode;
-  size?: "md" | "lg" | "xl";
+  size?: "md" | "lg" | "xl" | "2xl";
+  /** Contenido a ancho completo sin grid de dos columnas (listas, tablas, etc.) */
+  fullWidthContent?: boolean;
 }
 
 const sizeClasses = {
   md: "max-w-lg",
   lg: "max-w-2xl",
   xl: "max-w-3xl",
+  "2xl": "max-w-5xl",
 };
 
 function FormModal({
@@ -61,6 +66,7 @@ function FormModal({
   cancelLabel = "Cancelar",
   children,
   size = "lg",
+  fullWidthContent = false,
 }: FormModalProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -121,7 +127,13 @@ function FormModal({
                 <p className="text-sm font-medium text-rose-700">{error}</p>
               </div>
             ) : null}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{children}</div>
+            <div
+              className={
+                fullWidthContent ? "flex flex-col gap-4" : "grid grid-cols-1 gap-4 sm:grid-cols-2"
+              }
+            >
+              {children}
+            </div>
           </div>
 
           <div className="shrink-0 border-t border-slate-100 bg-slate-50/50 px-6 py-4">

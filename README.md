@@ -14,10 +14,11 @@ Se conecta al **API Gateway** (`http://localhost:8090`) que enruta hacia los mic
 
 ## 🛠️ Tecnologías
 
-- React 18
+- React 19
 - TypeScript
-- Vite
+- Vite 8
 - Tailwind CSS
+- Vitest + React Testing Library
 - JWT (Autenticación)
 - Fetch API
 
@@ -98,7 +99,7 @@ Authorization: Bearer {token}
 
 ## 🛠️ Instalación
 
-Ejecutar en la carpeta frontend:
+Ejecutar en la carpeta **frontend-react**:
 
 npm install
 
@@ -111,6 +112,37 @@ npm run dev
 Abrir en navegador:
 
 http://localhost:8094
+
+---
+
+## 🧪 Pruebas unitarias
+
+El frontend incluye **53 tests** con **Vitest** y **React Testing Library**, enfocados en autenticación, permisos RBAC y validadores de formulario.
+
+```powershell
+npm test              # ejecutar tests una vez
+npm run test:watch    # modo desarrollo
+npm run test:coverage # reporte HTML en coverage/index.html
+```
+
+### Archivos de test
+
+| Archivo | Qué valida |
+|---------|------------|
+| `src/Login.test.tsx` | Formulario de login, errores, llamada API |
+| `src/auth/AuthContext.test.tsx` | Sesión JWT, persistencia en localStorage |
+| `src/auth/permissions.test.ts` | Acceso por rol (ADMIN, DOCENTE, APODERADO, ESTUDIANTE) |
+| `src/api/client.test.ts` | URLs de API y headers Authorization |
+| `src/utils/*.test.ts` | RUT, email, teléfono, fechas, nombres |
+
+### Cobertura destacada (módulos críticos)
+
+| Módulo | Cobertura líneas |
+|--------|------------------|
+| `api/client.ts` | 100 % |
+| `auth/permissions.ts` | 94 % |
+| `Login.tsx` | 92 % |
+| `auth/AuthContext.tsx` | 86 % |
 
 ---
 
@@ -163,6 +195,7 @@ frontend-react/
 ✔ JWT funcionando  
 ✔ Integración con microservicios  
 ✔ Evaluaciones con notas chilenas  
+✔ 53 pruebas unitarias (Vitest)  
 
 ---
 

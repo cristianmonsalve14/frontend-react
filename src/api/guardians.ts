@@ -1,4 +1,5 @@
 import { apiUrl, getAuthHeaders } from "./client";
+import type { Student } from "./students";
 
 export interface Guardian {
   id: number;
@@ -71,4 +72,29 @@ export const deleteGuardian = async (id: number): Promise<void> => {
   if (!response.ok) {
     throw new Error(`Error ${response.status}: ${response.statusText}`);
   }
+};
+
+export const getCurrentGuardian = async (): Promise<Guardian | null> => {
+  const response = await fetch(`${API_URL}/me`, {
+    headers: getAuthHeaders(),
+  });
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || `Error ${response.status}`);
+  }
+  return response.json();
+};
+
+export const getGuardianStudents = async (): Promise<Student[]> => {
+  const response = await fetch(`${API_URL}/me/students`, {
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.message || `Error ${response.status}`);
+  }
+  return response.json();
 };

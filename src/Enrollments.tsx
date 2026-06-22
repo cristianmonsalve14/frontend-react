@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect, useMemo } from "react";
 import { getEnrollments, createEnrollment, updateEnrollment, deleteEnrollment } from "./api/enrollments";
 import { getCourses } from "./api/courses";
 import { getStudents } from "./api/students";
@@ -6,11 +6,16 @@ import type { Enrollment } from "./api/enrollments";
 import type { Course } from "./api/courses";
 import type { Student } from "./api/students";
 import { formatCourseLabel } from "./utils/formatCourseLabel";
+import { formatStudentFullName } from "./utils/formatStudentFullName";
 import ViewDetailModal, { type DetailField } from "./components/ViewDetailModal";
 import { moduleThemes } from "./theme/moduleThemes";
 import ModuleLayout from "./components/ModuleLayout";
 import RecordActions from "./components/RecordActions";
 import FormModal, { FormField, formInputClass } from "./components/FormModal";
+import { useAuth } from "./auth/AuthContext";
+import { sortById } from "./utils/sortById";
+import { validateNotFutureDateField } from "./utils/validateDate";
+import { sortByEnrollmentNumber } from "./utils/sortByEnrollmentNumber";
 
 const ENROLLMENT_STATUSES = [
   { value: "ACTIVO", label: "Activo" },
@@ -39,12 +44,19 @@ interface FormData {
   observations?: string;
 }
 
+interface EnrollmentGroup {
+  key: string;
+  label: string;
+  enrollments: Enrollment[];
+}
+
 interface EnrollmentsProps {
   onBack: () => void;
 }
 
 function Enrollments({ onBack }: EnrollmentsProps) {
   const theme = moduleThemes.enrollments;
+  const auth = useAuth();
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -65,6 +77,7 @@ function Enrollments({ onBack }: EnrollmentsProps) {
   const [submitting, setSubmitting] = useState(false);
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [searchTerm, setSearchTerm] = useState("");
+  const [courseFilter, setCourseFilter] = useState("");
   const [viewingEnrollment, setViewingEnrollment] = useState<Enrollment | null>(null);
 
   const loadData = async () => {
@@ -76,9 +89,9 @@ function Enrollments({ onBack }: EnrollmentsProps) {
         getCourses(),
         getStudents(),
       ]);
-      setEnrollments(enrollmentsData);
-      setCourses(coursesData);
-      setStudents(studentsData);
+      setEnrollments(sortByEnrollmentNumber(enrollmentsData));
+      setCourses(sortById(coursesData));
+      setStudents(sortById(studentsData));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
       console.error("Error cargando datos:", err);
@@ -94,9 +107,11 @@ function Enrollments({ onBack }: EnrollmentsProps) {
     void fetchData();
   }, []);
 
+  const studentById = useMemo(() => new Map(students.map((s) => [s.id, s])), [students]);
+
   const getStudentName = (studentId: number) => {
-    const student = students.find((s) => s.id === studentId);
-    return student ? `${student.firstName} ${student.lastName}` : `ID: ${studentId}`;
+    const student = studentById.get(studentId);
+    return student ? formatStudentFullName(student) : `ID: ${studentId}`;
   };
 
   const getCourseName = (courseId: number) => {
@@ -107,7 +122,11 @@ function Enrollments({ onBack }: EnrollmentsProps) {
   const getEnrollmentStatusLabel = (status?: string) =>
     ENROLLMENT_STATUSES.find((s) => s.value === status)?.label ?? status;
 
+  const getEnrollmentNumberLabel = (enrollment: Enrollment) =>
+    enrollment.enrollmentNumber ?? "Pendiente";
+
   const getEnrollmentDetailFields = (enrollment: Enrollment): DetailField[] => [
+    { label: "N° matrícula", value: getEnrollmentNumberLabel(enrollment) },
     { label: "Estudiante", value: getStudentName(enrollment.studentId) },
     { label: "Curso", value: getCourseName(enrollment.courseId) },
     { label: "Año académico", value: enrollment.academicYear },
@@ -122,17 +141,74 @@ function Enrollments({ onBack }: EnrollmentsProps) {
     { label: "Observaciones", value: enrollment.observations },
   ];
 
-  const filteredEnrollments = enrollments.filter((enrollment) => {
+  const filteredEnrollments = useMemo(() => {
     const searchLower = searchTerm.toLowerCase();
-    const studentName = (getStudentName(enrollment.studentId) ?? "").toLowerCase();
-    const courseName = (getCourseName(enrollment.courseId) ?? "").toLowerCase();
-    return (
-      studentName.includes(searchLower) ||
-      courseName.includes(searchLower) ||
-      (enrollment.enrollmentStatus ?? "").toLowerCase().includes(searchLower) ||
-      (enrollment.observations ?? "").toLowerCase().includes(searchLower)
-    );
-  });
+    const filtered = enrollments.filter((enrollment) => {
+      if (courseFilter && String(enrollment.courseId) !== courseFilter) {
+        return false;
+      }
+
+      const student = studentById.get(enrollment.studentId);
+      const studentName = (getStudentName(enrollment.studentId) ?? "").toLowerCase();
+      const courseName = (getCourseName(enrollment.courseId) ?? "").toLowerCase();
+      return (
+        studentName.includes(searchLower) ||
+        (student?.rut ?? "").toLowerCase().includes(searchLower) ||
+        courseName.includes(searchLower) ||
+        (enrollment.enrollmentNumber ?? "").toLowerCase().includes(searchLower) ||
+        (enrollment.enrollmentStatus ?? "").toLowerCase().includes(searchLower) ||
+        (enrollment.observations ?? "").toLowerCase().includes(searchLower)
+      );
+    });
+    return sortByEnrollmentNumber(filtered);
+  }, [enrollments, searchTerm, courseFilter, studentById, courses]);
+
+  const enrollmentGroups = useMemo((): EnrollmentGroup[] => {
+    if (courseFilter) {
+      const course = courses.find((c) => String(c.id) === courseFilter);
+      const label = course ? formatCourseLabel(course) : getCourseName(Number(courseFilter));
+      return filteredEnrollments.length
+        ? [{ key: courseFilter, label, enrollments: filteredEnrollments }]
+        : [];
+    }
+
+    const byKey = new Map<string, Enrollment[]>();
+    for (const enrollment of filteredEnrollments) {
+      const key = String(enrollment.courseId);
+      const list = byKey.get(key) ?? [];
+      list.push(enrollment);
+      byKey.set(key, list);
+    }
+
+    const groups: EnrollmentGroup[] = [];
+    const seen = new Set<string>();
+
+    for (const course of courses) {
+      const key = String(course.id);
+      const groupEnrollments = byKey.get(key);
+      if (groupEnrollments?.length) {
+        groups.push({
+          key,
+          label: formatCourseLabel(course),
+          enrollments: sortByEnrollmentNumber(groupEnrollments),
+        });
+        seen.add(key);
+      }
+    }
+
+    for (const [key, groupEnrollments] of byKey) {
+      if (seen.has(key)) continue;
+      groups.push({
+        key,
+        label: getCourseName(Number(key)),
+        enrollments: sortByEnrollmentNumber(groupEnrollments),
+      });
+    }
+
+    return groups;
+  }, [filteredEnrollments, courseFilter, courses]);
+
+  const showGroupHeaders = !courseFilter;
 
   const openCreateModal = () => {
     setEditingEnrollment(null);
@@ -216,6 +292,13 @@ function Enrollments({ onBack }: EnrollmentsProps) {
       setFormError("Debes seleccionar un estudiante y un curso");
       return;
     }
+    if (formData.enrollmentDate?.trim()) {
+      const dateError = validateNotFutureDateField(formData.enrollmentDate, "La fecha de matrícula");
+      if (dateError) {
+        setFormError(dateError);
+        return;
+      }
+    }
     setSubmitting(true);
     setFormError(null);
     try {
@@ -263,14 +346,30 @@ function Enrollments({ onBack }: EnrollmentsProps) {
         onBack={onBack}
         createLabel="Nueva Matrícula"
         onCreate={openCreateModal}
+        canCreate={auth.canCreate("enrollments")}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
-        searchPlaceholder="Buscar por estudiante o curso..."
+        searchPlaceholder="Buscar por N° matrícula, nombre, RUT o curso..."
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         onRefresh={loadData}
         loading={loading}
         error={error}
+        toolbarExtra={
+          <select
+            value={courseFilter}
+            onChange={(e) => setCourseFilter(e.target.value)}
+            className={`min-w-[200px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:ring-2 ${theme.focusRing}`}
+            aria-label="Filtrar por curso"
+          >
+            <option value="">Todos los cursos</option>
+            {courses.map((course) => (
+              <option key={course.id} value={String(course.id)}>
+                {formatCourseLabel(course)}
+              </option>
+            ))}
+          </select>
+        }
       >
         {enrollments.length === 0 && (
           <div className="text-center py-12 text-gray-500">
@@ -288,79 +387,138 @@ function Enrollments({ onBack }: EnrollmentsProps) {
         {enrollments.length > 0 && filteredEnrollments.length === 0 && (
           <div className="text-center py-12 text-gray-500">
             <div className="text-6xl mb-4">🔍</div>
-            <p>No se encontraron matrículas con ese criterio de búsqueda</p>
+            <p>No se encontraron matrículas con ese criterio de búsqueda o curso</p>
           </div>
         )}
 
-        {filteredEnrollments.length > 0 && viewMode === "cards" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredEnrollments.map((enrollment) => (
-              <div key={enrollment.id} className={theme.cardClass}>
-                <div className="text-4xl mb-4">📋</div>
-                <h3 className="text-xl font-semibold text-gray-700 mb-2">Matrícula #{enrollment.id}</h3>
-                <p className="text-sm text-gray-600 mb-1">{getStudentName(enrollment.studentId)}</p>
-                <p className="text-sm text-gray-600 mb-1">{getCourseName(enrollment.courseId)}</p>
-                <p className="text-sm text-gray-600 mb-1">Año académico: {enrollment.academicYear}</p>
-                <p className="text-sm text-gray-600 mb-1">Estado: {enrollment.enrollmentStatus}</p>
-                <p className="text-sm text-gray-600 mb-1">Tipo: {enrollment.isRegular ? "Regular" : "No regular"}</p>
-                {enrollment.enrollmentDate && (
-                  <p className="text-sm text-gray-500 mb-1">
-                    Matrícula: {new Date(enrollment.enrollmentDate).toLocaleDateString()}
-                  </p>
+        {enrollmentGroups.length > 0 && viewMode === "cards" && (
+          <div className="space-y-8">
+            {enrollmentGroups.map((group) => (
+              <section key={group.key}>
+                {showGroupHeaders && (
+                  <div className="mb-4 flex items-center gap-3">
+                    <h3 className="text-lg font-semibold text-slate-800">{group.label}</h3>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                      {group.enrollments.length}{" "}
+                      {group.enrollments.length === 1 ? "matrícula" : "matrículas"}
+                    </span>
+                  </div>
                 )}
-                {enrollment.observations && (
-                  <p className="text-sm text-gray-500 mb-1">Obs: {enrollment.observations}</p>
-                )}
-                <div className="mt-4">
-                  <RecordActions
-                    onView={() => setViewingEnrollment(enrollment)}
-                    onEdit={() => openEditModal(enrollment)}
-                    onDelete={() => handleDelete(enrollment)}
-                    compact
-                    stretch
-                  />
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  {group.enrollments.map((enrollment) => (
+                    <div key={enrollment.id} className={theme.cardClass}>
+                      <div className="mb-4 text-4xl">📋</div>
+                      <h3 className="mb-2 text-xl font-semibold text-gray-700">
+                        Matrícula {getEnrollmentNumberLabel(enrollment)}
+                      </h3>
+                      <p className="mb-1 text-sm font-medium text-gray-700">
+                        {getStudentName(enrollment.studentId)}
+                      </p>
+                      {!showGroupHeaders && (
+                        <p className="mb-1 text-sm text-gray-600">{getCourseName(enrollment.courseId)}</p>
+                      )}
+                      <p className="mb-1 text-sm text-gray-600">Año académico: {enrollment.academicYear}</p>
+                      <p className="mb-1 text-sm text-gray-600">Estado: {enrollment.enrollmentStatus}</p>
+                      <p className="mb-1 text-sm text-gray-600">
+                        Tipo: {enrollment.isRegular ? "Regular" : "No regular"}
+                      </p>
+                      {enrollment.enrollmentDate && (
+                        <p className="mb-1 text-sm text-gray-500">
+                          Fecha: {new Date(enrollment.enrollmentDate).toLocaleDateString()}
+                        </p>
+                      )}
+                      {enrollment.observations && (
+                        <p className="mb-1 text-sm text-gray-500">Obs: {enrollment.observations}</p>
+                      )}
+                      <div className="mt-4">
+                        <RecordActions
+                          onView={() => setViewingEnrollment(enrollment)}
+                          onEdit={() => openEditModal(enrollment)}
+                          onDelete={() => handleDelete(enrollment)}
+                          canEdit={auth.canEdit("enrollments")}
+                          canDelete={auth.canDelete("enrollments")}
+                          compact
+                          stretch
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
+              </section>
             ))}
           </div>
         )}
 
-        {filteredEnrollments.length > 0 && viewMode === "table" && (
+        {enrollmentGroups.length > 0 && viewMode === "table" && (
           <div className={theme.tableWrap}>
             <table className="w-full text-sm">
               <thead className={theme.tableHead}>
                 <tr>
+                  <th className="px-4 py-3 text-left font-semibold">N° matrícula</th>
                   <th className="px-4 py-3 text-left font-semibold">Estudiante</th>
-                  <th className="px-4 py-3 text-left font-semibold">Curso</th>
+                  {!showGroupHeaders && (
+                    <th className="px-4 py-3 text-left font-semibold">Curso</th>
+                  )}
                   <th className="px-4 py-3 text-left font-semibold">Año</th>
                   <th className="px-4 py-3 text-left font-semibold">Estado</th>
                   <th className="px-4 py-3 text-left font-semibold">Tipo</th>
-                  <th className="px-4 py-3 text-left font-semibold">Matrícula</th>
+                  <th className="px-4 py-3 text-left font-semibold">Fecha matrícula</th>
                   <th className="px-4 py-3 text-left font-semibold">Obs.</th>
                   <th className="px-4 py-3 text-center font-semibold">Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredEnrollments.map((enrollment) => (
-                  <tr key={enrollment.id} className={`border-t border-slate-100 ${theme.tableRowHover}`}>
-                    <td className="px-4 py-3 text-gray-700">{getStudentName(enrollment.studentId)}</td>
-                    <td className="px-4 py-3 text-gray-600">{getCourseName(enrollment.courseId)}</td>
-                    <td className="px-4 py-3 text-gray-600">{enrollment.academicYear}</td>
-                    <td className="px-4 py-3 text-gray-600">{enrollment.enrollmentStatus}</td>
-                    <td className="px-4 py-3 text-gray-600">{enrollment.isRegular ? "Regular" : "No regular"}</td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {enrollment.enrollmentDate ? new Date(enrollment.enrollmentDate).toLocaleDateString() : "-"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{enrollment.observations}</td>
-                    <td className="px-4 py-3">
-                      <RecordActions
-                        onView={() => setViewingEnrollment(enrollment)}
-                        onEdit={() => openEditModal(enrollment)}
-                        onDelete={() => handleDelete(enrollment)}
-                        compact
-                      />
-                    </td>
-                  </tr>
+                {enrollmentGroups.map((group) => (
+                  <Fragment key={group.key}>
+                    {showGroupHeaders && (
+                      <tr className="bg-slate-50">
+                        <td
+                          colSpan={showGroupHeaders ? 8 : 9}
+                          className="px-4 py-3 text-sm font-semibold text-slate-700"
+                        >
+                          {group.label}
+                          <span className="ml-2 font-normal text-slate-500">
+                            ({group.enrollments.length}{" "}
+                            {group.enrollments.length === 1 ? "matrícula" : "matrículas"})
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    {group.enrollments.map((enrollment) => (
+                      <tr key={enrollment.id} className={`border-t border-slate-100 ${theme.tableRowHover}`}>
+                        <td className="px-4 py-3 font-medium text-gray-700">
+                          {getEnrollmentNumberLabel(enrollment)}
+                        </td>
+                        <td className="min-w-[220px] whitespace-normal px-4 py-3 text-gray-700">
+                          {getStudentName(enrollment.studentId)}
+                        </td>
+                        {!showGroupHeaders && (
+                          <td className="px-4 py-3 text-gray-600">{getCourseName(enrollment.courseId)}</td>
+                        )}
+                        <td className="px-4 py-3 text-gray-600">{enrollment.academicYear}</td>
+                        <td className="px-4 py-3 text-gray-600">{enrollment.enrollmentStatus}</td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {enrollment.isRegular ? "Regular" : "No regular"}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {enrollment.enrollmentDate
+                            ? new Date(enrollment.enrollmentDate).toLocaleDateString()
+                            : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">{enrollment.observations}</td>
+                        <td className="px-4 py-3">
+                          <RecordActions
+                            onView={() => setViewingEnrollment(enrollment)}
+                            onEdit={() => openEditModal(enrollment)}
+                            onDelete={() => handleDelete(enrollment)}
+                            canEdit={auth.canEdit("enrollments")}
+                            canDelete={auth.canDelete("enrollments")}
+                            compact
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -371,7 +529,7 @@ function Enrollments({ onBack }: EnrollmentsProps) {
       {viewingEnrollment && (
         <ViewDetailModal
           title="Detalle de la matrícula"
-          subtitle={`Matrícula #${viewingEnrollment.id}`}
+          subtitle={`Matrícula ${getEnrollmentNumberLabel(viewingEnrollment)}`}
           fields={getEnrollmentDetailFields(viewingEnrollment)}
           onClose={() => setViewingEnrollment(null)}
           theme={theme}
@@ -381,7 +539,11 @@ function Enrollments({ onBack }: EnrollmentsProps) {
       {showModal && (
         <FormModal
           title={editingEnrollment ? "Editar Matrícula" : "Nueva Matrícula"}
-          subtitle={editingEnrollment ? "Modifica los datos de la matrícula" : "Inscribe un estudiante en un curso"}
+          subtitle={
+            editingEnrollment
+              ? "Modifica los datos de la matrícula"
+              : "Inscribe un estudiante en un curso. El N° (ej. 2026-1) se asigna automáticamente."
+          }
           theme={theme}
           onClose={closeModal}
           onSubmit={handleSubmit}
@@ -394,7 +556,7 @@ function Enrollments({ onBack }: EnrollmentsProps) {
               <option value="">Seleccionar estudiante</option>
               {students.map((student) => (
                 <option key={student.id} value={student.id}>
-                  {student.firstName} {student.lastName} - {student.email}
+                  {formatStudentFullName(student)} — {student.rut ?? student.email}
                 </option>
               ))}
             </select>

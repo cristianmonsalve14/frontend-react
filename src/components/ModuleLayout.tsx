@@ -6,6 +6,7 @@ interface ModuleLayoutProps {
   onBack: () => void;
   createLabel: string;
   onCreate: () => void;
+  canCreate?: boolean;
   searchTerm: string;
   onSearchChange: (value: string) => void;
   searchPlaceholder?: string;
@@ -23,6 +24,7 @@ function ModuleLayout({
   onBack,
   createLabel,
   onCreate,
+  canCreate = true,
   searchTerm,
   onSearchChange,
   searchPlaceholder = "Buscar...",
@@ -61,14 +63,16 @@ function ModuleLayout({
                   <p className="mt-0.5 text-sm text-slate-500">{theme.subtitle}</p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={onCreate}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${theme.primaryBtn}`}
-              >
-                <span className="text-base leading-none">+</span>
-                {createLabel}
-              </button>
+              {canCreate && (
+                <button
+                  type="button"
+                  onClick={onCreate}
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${theme.primaryBtn}`}
+                >
+                  <span className="text-base leading-none">+</span>
+                  {createLabel}
+                </button>
+              )}
             </div>
 
             <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center">

@@ -13,6 +13,7 @@ export interface Teacher {
   phone?: string;
   specialization?: string;
   teacherStatus?: string;
+  userId?: number;
 }
 
 // FormData para crear/editar
@@ -32,6 +33,7 @@ export type TeacherFormData = {
   educationLevel?: string;
   hireDate?: string | null;
   contractType?: string;
+  userId?: number;
 };
 
 // ===== HEADERS CON TOKEN =====
@@ -57,6 +59,7 @@ export const createTeacher = async (teacher: TeacherFormData): Promise<Teacher> 
     educationLevel: teacher.educationLevel ?? null,
     hireDate: teacher.hireDate ?? null,
     contractType: teacher.contractType ?? null,
+    userId: teacher.userId ?? null,
   };
 
   const response = await fetch(API_URL, {
@@ -92,6 +95,7 @@ export const updateTeacher = async (id: number, teacher: TeacherFormData): Promi
     educationLevel: teacher.educationLevel ?? null,
     hireDate: teacher.hireDate ?? null,
     contractType: teacher.contractType ?? null,
+    userId: teacher.userId ?? null,
   };
 
   const response = await fetch(`${API_URL}/${id}`, {
@@ -118,6 +122,21 @@ export const getTeachers = async (): Promise<Teacher[]> => {
     throw new Error(`Error ${response.status}: ${response.statusText}`);
   }
   return await response.json();
+};
+
+// ===== GET CURRENT (docente autenticado) =====
+export const getCurrentTeacher = async (): Promise<Teacher | null> => {
+  const response = await fetch(`${API_URL}/me`, {
+    headers: getAuthHeaders(),
+  });
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Error ${response.status}: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data ?? null;
 };
 
 // ===== DELETE =====
